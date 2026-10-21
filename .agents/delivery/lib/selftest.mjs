@@ -361,6 +361,163 @@ export function selftest() {
       deliverRoleText.includes('claude -p')
       && /weak independence/i.test(reportRoleText),
       'missing claude -p or weak independence in role docs');
+
+    const beforeBadCfg = JSON.stringify({ ...baseEpCfg, tools_enabled: [], roles: validPairRoles, roles_confirmed: true, permissions_confirmed: true }, null, 2) + '\n';
+    writeFileSync(cfgDir, beforeBadCfg);
+    const badCfgNoWriteRes = cli(epDir, 'config');
+    const afterBadCfgRaw = readFileSync(cfgDir, 'utf8');
+    const afterBadCfg = JSON.parse(afterBadCfgRaw);
+    check('ac24: config does not rewrite project.json when errors exist',
+      badCfgNoWriteRes.code === 1
+      && afterBadCfg.roles_confirmed === true
+      && afterBadCfg.permissions_confirmed === true
+      && afterBadCfgRaw === beforeBadCfg,
+      `${badCfgNoWriteRes.raw} :: ${afterBadCfgRaw}`);
+
+    writeFileSync(cfgDir, JSON.stringify({ ...baseEpCfg, tools_enabled: ['claude', 'codex'], roles: validPairRoles, roles_confirmed: true, permissions_confirmed: true }, null, 2) + '\n');
+    const firstResetRes = cli(epDir, 'config');
+    const afterFirstResetRaw = readFileSync(cfgDir, 'utf8');
+    const afterFirstResetCfg = JSON.parse(afterFirstResetRaw);
+    const secondResetRes = cli(epDir, 'config');
+    const afterSecondResetRaw = readFileSync(cfgDir, 'utf8');
+    check('ac24: valid config resets confirmations once with reset list and second run does not write',
+      firstResetRes.code === 0
+      && Array.isArray(firstResetRes.json?.reset)
+      && firstResetRes.json.reset.includes('roles_confirmed')
+      && firstResetRes.json.reset.includes('permissions_confirmed')
+      && afterFirstResetCfg.roles_confirmed === false
+      && afterFirstResetCfg.permissions_confirmed === false
+      && secondResetRes.code === 0
+      && Array.isArray(secondResetRes.json?.reset)
+      && secondResetRes.json.reset.length === 0
+      && afterSecondResetRaw === afterFirstResetRaw,
+      `${firstResetRes.raw} :: ${secondResetRes.raw}`);
+
+    const onlyCodexRoles = Object.fromEntries(allRoles.map((r) => [r, 'codex']));
+    const permsCondBoth = toolsMod.proposePermissions(
+      { ...cfg, conductor: 'claude', tools_enabled: ['codex', 'antigravity'], roles: codexAgyRoles },
+      codexAgyRoles,
+      { conductor: 'claude' },
+    );
+    const permsCondCodexOnly = toolsMod.proposePermissions(
+      { ...cfg, conductor: 'claude', tools_enabled: ['codex'], roles: onlyCodexRoles },
+      onlyCodexRoles,
+      { conductor: 'claude' },
+    );
+    const permsNonClaudeCond = toolsMod.proposePermissions(
+      { ...cfg, conductor: 'codex', tools_enabled: ['codex', 'antigravity'], roles: codexAgyRoles },
+      codexAgyRoles,
+      { conductor: 'codex' },
+    );
+    check('ac25: claude conductor gets codex and agy bash permissions even without claude role',
+      'claude' in permsCondBoth
+      && permsCondBoth.claude.allow.includes('Bash(codex exec:*)')
+      && permsCondBoth.claude.allow.includes('Bash(agy -p:*)')
+      && 'claude' in permsCondCodexOnly
+      && permsCondCodexOnly.claude.allow.includes('Bash(codex exec:*)')
+      && !permsCondCodexOnly.claude.allow.some((r) => /agy -p/.test(r))
+      && !('claude' in permsNonClaudeCond),
+      JSON.stringify({ permsCondBoth, permsCondCodexOnly, permsNonClaudeCond }));
+
+    writeFileSync(cfgDir, JSON.stringify({
+      ...baseEpCfg,
+      tools_enabled: ['claude', 'codex', 'gemini'],
+      roles: { ...validPairRoles, qa_design: 'gemini', qa_run: 'antigravity' },
+    }, null, 2));
+    const geminiAliasRes = cli(epDir, 'config');
+    check('ac26: config canonicalizes gemini in roles and tools_enabled to antigravity',
+      geminiAliasRes.code === 0 && geminiAliasRes.json?.ok === true && (geminiAliasRes.json?.errors ?? []).length === 0,
+      geminiAliasRes.raw);
+
+    const agyMatchesRule = (rules, cmdLine) => (rules ?? []).some((rule) => {
+      if (rule.startsWith('command(regex:') && rule.endsWith(')')) {
+        const pat = rule.slice('command(regex:'.length, -1);
+        try { return new RegExp(`^${pat}$`).test(cmdLine); } catch { return false; }
+      }
+      if (rule.startsWith('command(') && rule.endsWith(')')) {
+        const p = rule.slice('command('.length, -1);
+        return cmdLine === p || cmdLine.startsWith(`${p} `);
+      }
+      return false;
+    });
+    const agyAllowsCmd = (p, cmdLine) => agyMatchesRule(p?.allow, cmdLine) && !agyMatchesRule(p?.deny, cmdLine);
+    const permsAgySafeSub = toolsMod.proposePermissions({
+      ...cfg,
+      test: { ...cfg.test, commands: { file: 'npx jest {path}', suite: 'npx jest', lint: null } },
+      roles: codexAgyRoles,
+    }, codexAgyRoles);
+    const safeSubs = ['validate', 'guard', 'check-output', 'detect', 'selftest'];
+    const unsafeSubs = ['lock-tests', 'install', 'config', 'doctor', 'perms'];
+    check('ac27: antigravity permissions allow safe delivery.mjs subcommands and block mutating ones',
+      safeSubs.every((sub) => agyAllowsCmd(permsAgySafeSub.antigravity, `node .agents/delivery/delivery.mjs ${sub}`))
+      && unsafeSubs.every((sub) => !agyAllowsCmd(permsAgySafeSub.antigravity, `node .agents/delivery/delivery.mjs ${sub}`)),
+      JSON.stringify(permsAgySafeSub.antigravity));
+
+    const permsFileTestDir = toolsMod.proposePermissions({
+      ...cfg,
+      code_dirs: ['src/'],
+      test_dirs: ['.agents/delivery/lib/selftest.mjs', 'tests'],
+      roles: codexAgyRoles,
+    }, codexAgyRoles);
+    check('ac28: write_file rule for single file in test_dirs has no trailing slash while directory keeps slash',
+      permsFileTestDir.antigravity?.allow?.includes('write_file(.agents/delivery/lib/selftest.mjs)')
+      && !permsFileTestDir.antigravity?.allow?.includes('write_file(.agents/delivery/lib/selftest.mjs/)')
+      && permsFileTestDir.antigravity?.allow?.includes('write_file(tests/)'),
+      JSON.stringify(permsFileTestDir.antigravity));
+
+    const protPlan = proposeRoles(pref, allFound, ['claude', 'codex', 'antigravity'], {
+      code_dirs: ['.agents/delivery/'],
+      test_dirs: ['.agents/delivery/lib/selftest.mjs'],
+    });
+    const protQaPlan = proposeRoles({ ...pref, dev: 'claude', qa_design: 'codex' }, allFound, ['claude', 'codex', 'antigravity'], {
+      code_dirs: ['src/'],
+      test_dirs: ['.agents/delivery/lib/selftest.mjs'],
+    });
+    const protMsgs = [...(protPlan.warnings ?? []), ...(protPlan.problems ?? [])];
+    const protQaMsgs = [...(protQaPlan.warnings ?? []), ...(protQaPlan.problems ?? [])];
+    check('ac29: proposeRoles switches codex away from protected_paths (.agents/.git) when alternative exists',
+      protPlan.roles?.dev !== 'codex'
+      && protPlan.roles?.qa_design !== 'codex'
+      && protPlan.roles?.review !== protPlan.roles?.dev
+      && protPlan.roles?.qa_design !== protPlan.roles?.dev
+      && protPlan.roles?.qa_run !== protPlan.roles?.dev
+      && protMsgs.some((m) => /protected_paths/i.test(m))
+      && protQaPlan.roles?.qa_design !== 'codex'
+      && protQaPlan.roles?.qa_design !== protQaPlan.roles?.dev
+      && protQaMsgs.some((m) => /protected_paths/i.test(m)),
+      JSON.stringify({ protPlan, protQaPlan }));
+
+    const protOnlyCodex = proposeRoles(pref, allFound, ['codex'], {
+      code_dirs: ['.agents/delivery/'],
+      test_dirs: ['tests/'],
+    });
+    const protOnlyCodexMsgs = [...(protOnlyCodex.warnings ?? []), ...(protOnlyCodex.problems ?? [])];
+    check('ac29: proposeRoles keeps codex with protected_paths warning and patch protocol when only codex is available',
+      protOnlyCodex.roles?.dev === 'codex'
+      && protOnlyCodexMsgs.some((m) => /protected_paths/i.test(m))
+      && protOnlyCodexMsgs.some((m) => /patch/i.test(m)),
+      JSON.stringify(protOnlyCodex));
+
+    const devRoleText = readFileSync(resolve(moduleDir, 'roles/dev.md'), 'utf8');
+    check('ac30: deliver.md, dev.md and README.md document codex sandbox limits, conductor commit and implementation.patch',
+      deliverRoleText.includes('implementation.patch')
+      && /codex/i.test(deliverRoleText)
+      && /\.git/.test(deliverRoleText)
+      && devRoleText.includes('implementation.patch')
+      && /codex/i.test(devRoleText)
+      && /\.git/.test(devRoleText)
+      && /\.agents/.test(readmeText)
+      && /\.git/.test(readmeText),
+      'missing codex sandbox / implementation.patch protocol in deliver.md, dev.md or README.md');
+
+    const outAccessDenied = checkToolOutput('error: Access denied while writing .agents/delivery/delivery.mjs');
+    const outIndexLock = checkToolOutput("fatal: Unable to create '/repo/.git/index.lock': Permission denied");
+    const outReadOnly = checkToolOutput('Error: EROFS: read-only file system, open .agents/delivery/lib/tools.mjs');
+    check('ac31: checkToolOutput detects codex write failures (access denied, index.lock, read-only)',
+      !outAccessDenied.ok && outAccessDenied.reasons.length > 0
+      && !outIndexLock.ok && outIndexLock.reasons.length > 0
+      && !outReadOnly.ok && outReadOnly.reasons.length > 0,
+      JSON.stringify({ outAccessDenied, outIndexLock, outReadOnly }));
   } finally {
     rmSync(base, { recursive: true, force: true });
   }
