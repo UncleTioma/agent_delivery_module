@@ -1,0 +1,27 @@
+{
+  "type": "object",
+  "required": ["id", "stage", "iteration", "history"],
+  "properties": {
+    "id": {"type": "string"},
+    "track": {"type": ["string", "null"], "enum": ["S", "M", "L", "G", null]},
+    "stage": {"type": "string", "enum": ["init", "bootstrap", "ba-questions", "ba-requirements", "triage", "workspace", "qa-design", "architect", "plan", "loop", "report", "acceptance", "done", "stopped"]},
+    "iteration": {"type": "integer"},
+    "question_round": {"type": "integer"},
+    "back_to_ba": {"type": "integer"},
+    "po_rework": {"type": "integer"},
+    "branch": {"type": ["string", "null"]},
+    "waiting_for": {"type": ["string", "null"], "enum": ["H1", "H2", "H3", "H4", null]},
+    "history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["stage", "tool", "status"],
+        "properties": {
+          "stage": {"type": "string"},
+          "tool": {"type": "string"},
+          "status": {"type": "string", "enum": ["ok", "retry", "failed"]}
+        }
+      }
+    }
+  }
+}

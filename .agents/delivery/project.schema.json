@@ -1,0 +1,45 @@
+{
+  "type": "object",
+  "required": ["module_version", "configured", "profile", "project", "base_branch", "task_dir", "code_dirs", "test_dirs", "test", "roles", "commands", "limits"],
+  "properties": {
+    "module_version": { "type": "string" },
+    "configured": { "type": "boolean" },
+    "profile": { "type": "string" },
+    "project": { "type": "string" },
+    "language": { "type": ["string", "null"] },
+    "instructions_file": { "type": ["string", "null"] },
+    "base_branch": { "type": "string" },
+    "branch_prefix": { "type": "string" },
+    "isolation": { "type": "string", "enum": ["branch", "worktree"] },
+    "task_dir": { "type": "string" },
+    "app_dir": { "type": "string" },
+    "code_dirs": { "type": "array", "items": { "type": "string" } },
+    "test_dirs": { "type": "array", "items": { "type": "string" } },
+    "test": {
+      "type": "object",
+      "required": ["env", "commands"],
+      "properties": {
+        "env": { "type": ["string", "null"], "enum": ["docker", "local", null] },
+        "service": { "type": ["string", "null"] },
+        "exec_prefix": { "type": ["string", "null"] },
+        "workdir": { "type": ["string", "null"] },
+        "suites": { "type": "array", "items": { "type": "string" } },
+        "commands": { "type": "object" },
+        "rules": { "type": "array", "items": { "type": "string" } },
+        "skill": { "type": ["string", "null"] }
+      }
+    },
+    "domain_skills": { "type": "object" },
+    "forbidden_paths": { "type": "array", "items": { "type": "string" } },
+    "architect_triggers": { "type": "array", "items": { "type": "string" } },
+    "human_approval": { "type": "array", "items": { "type": "string" } },
+    "review_checklist": { "type": "array", "items": { "type": "string" } },
+    "roles": { "type": "object" },
+    "commands": { "type": "object" },
+    "limits": { "type": "object" },
+    "publish": { "type": "boolean" },
+    "roles_confirmed": { "type": "boolean" },
+    "permissions_confirmed": { "type": "boolean" },
+    "unresolved": { "type": "array" }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "id": "node",
+  "label": "Node.js / TypeScript",
+  "runtime": "node",
+  "detect": { "weight": 1, "any": [{ "file": "package.json" }] },
+  "test": {
+    "suites": [],
+    "commands": {
+      "file": "npm test -- {path}",
+      "suite": "npm test",
+      "lint": "node --check {file}"
+    },
+    "rules": [
+      "Run tests against test configuration and a test database only.",
+      "Do not run commands that reset or migrate the application database."
+    ]
+  },
+  "code_dir_hints": ["src", "app", "lib", "server", "api"],
+  "docker_service_hints": ["app", "web", "api", "node", "backend"],
+  "architect_triggers": [
+    "new data model or non-trivial migration",
+    "authentication or authorization change",
+    "public API contract change",
+    "queues, workers or external integration",
+    "change touching several packages or shared modules",
+    "performance or data-volume requirements"
+  ],
+  "review_checklist": [
+    "authorization on every changed route or handler",
+    "input validation and output encoding",
+    "async error handling and transaction boundaries",
+    "dependency additions and lockfile changes",
+    "personal data exposure and secrets in code"
+  ],
+  "forbidden_paths": ["**/.env", "**/.env.*", "**/*.pem", "**/*.key"]
+}

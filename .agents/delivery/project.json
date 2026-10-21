@@ -1,0 +1,120 @@
+{
+  "module_version": "0.2.0",
+  "configured": false,
+  "profile": "generic",
+  "project": "agent_delivery_module",
+  "language": null,
+  "instructions_file": null,
+  "base_branch": "main",
+  "branch_prefix": "ai/",
+  "isolation": "branch",
+  "task_dir": ".work/tasks",
+  "app_dir": ".",
+  "code_dirs": [
+    "src/"
+  ],
+  "test_dirs": [
+    "tests/"
+  ],
+  "test": {
+    "env": "local",
+    "service": null,
+    "exec_prefix": null,
+    "workdir": null,
+    "suites": [],
+    "commands": {
+      "file": null,
+      "suite": null,
+      "lint": null
+    },
+    "rules": [
+      "Never run destructive commands against a non-test database."
+    ],
+    "skill": null
+  },
+  "domain_skills": {},
+  "forbidden_paths": [
+    "**/.env",
+    "**/.env.*",
+    "**/*.pem",
+    "**/*.key"
+  ],
+  "architect_triggers": [
+    "new data model or non-trivial migration",
+    "authentication or authorization change",
+    "public API contract change",
+    "external integration",
+    "change touching several modules or shared code",
+    "performance or data-volume requirements"
+  ],
+  "human_approval": [
+    "migration",
+    "rbac",
+    "new_dependency",
+    "data_deletion"
+  ],
+  "review_checklist": [
+    "authorization on every changed entry point",
+    "input validation",
+    "error handling and transaction boundaries",
+    "migration safety and rollback",
+    "personal data exposure and secrets in code"
+  ],
+  "roles": {
+    "ba": "claude",
+    "teamlead": "claude",
+    "architect": "claude",
+    "qa_design": "antigravity",
+    "dev": "codex",
+    "review": "claude",
+    "qa_run": "antigravity",
+    "report": "claude"
+  },
+  "commands": {
+    "codex": "codex exec --sandbox workspace-write \"{prompt}\"",
+    "antigravity": "agy -p \"{prompt}\" --output-format json --print-timeout 30m --effort high",
+    "claude": "subagent"
+  },
+  "limits": {
+    "max_iterations": 3,
+    "max_question_rounds": 2,
+    "max_back_to_ba": 1,
+    "max_po_rework": 2,
+    "max_questions": 7
+  },
+  "publish": false,
+  "roles_confirmed": false,
+  "permissions_confirmed": false,
+  "unresolved": [
+    {
+      "key": "test.commands.file",
+      "question": "Which command runs a single test file? (use {path} for the file)",
+      "default": null
+    },
+    {
+      "key": "test.commands.suite",
+      "question": "Which command runs the whole test suite?",
+      "default": null
+    },
+    {
+      "key": "profile",
+      "question": "Stack was not recognised. Which language and framework is this project?",
+      "default": null
+    },
+    {
+      "key": "instructions_file",
+      "question": "No AGENTS.md or CLAUDE.md found. Create AGENTS.md with a short project map?",
+      "default": "yes"
+    },
+    {
+      "key": "language",
+      "question": "Language for questions and reports?",
+      "default": "en"
+    },
+    {
+      "key": "git",
+      "question": "This folder is not a git repository. Run git init?",
+      "default": "yes"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "id": "generic",
+  "label": "Generic (stack not recognised)",
+  "runtime": null,
+  "detect": { "weight": 0, "any": [] },
+  "test": {
+    "suites": [],
+    "commands": { "file": null, "suite": null, "lint": null },
+    "rules": ["Never run destructive commands against a non-test database."]
+  },
+  "code_dir_hints": ["src", "app", "lib"],
+  "docker_service_hints": ["app", "web", "backend"],
+  "architect_triggers": [
+    "new data model or non-trivial migration",
+    "authentication or authorization change",
+    "public API contract change",
+    "external integration",
+    "change touching several modules or shared code",
+    "performance or data-volume requirements"
+  ],
+  "review_checklist": [
+    "authorization on every changed entry point",
+    "input validation",
+    "error handling and transaction boundaries",
+    "migration safety and rollback",
+    "personal data exposure and secrets in code"
+  ],
+  "forbidden_paths": ["**/.env", "**/.env.*", "**/*.pem", "**/*.key"]
+}

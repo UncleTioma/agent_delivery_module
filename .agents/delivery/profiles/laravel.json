@@ -1,0 +1,37 @@
+{
+  "id": "laravel",
+  "label": "Laravel (PHP)",
+  "runtime": "php",
+  "detect": { "weight": 3, "any": [{ "composer": "laravel/framework" }, { "file": "artisan" }] },
+  "test": {
+    "suites": [],
+    "commands": {
+      "file": "php artisan test {path}",
+      "suite": "php artisan test",
+      "lint": "php -l {file}"
+    },
+    "rules": [
+      "Run tests with APP_ENV=testing and the test database from .env.testing / phpunit.xml only.",
+      "Never run migrate:fresh, db:wipe or migrate:refresh against the application database.",
+      "Prefer RefreshDatabase or DatabaseTransactions in tests."
+    ]
+  },
+  "code_dir_hints": ["app", "routes", "database"],
+  "docker_service_hints": ["php", "app", "laravel", "fpm"],
+  "architect_triggers": [
+    "new model or non-trivial migration",
+    "authorization change (policies, gates, roles)",
+    "public API route or resource change",
+    "queues, jobs, scheduled tasks or external integration",
+    "change touching several modules or shared services",
+    "performance or data-volume requirements"
+  ],
+  "review_checklist": [
+    "authorization via policies/gates on every changed route",
+    "validation through form requests",
+    "database transactions and N+1 queries",
+    "migration safety and rollback",
+    "mass assignment and personal data exposure"
+  ],
+  "forbidden_paths": ["**/.env", "**/.env.*", "**/auth.json", "storage/oauth-*.key"]
+}

@@ -1,0 +1,37 @@
+{
+  "id": "yii2",
+  "label": "Yii2 (PHP)",
+  "runtime": "php",
+  "detect": { "weight": 3, "any": [{ "composer": "yiisoft/yii2" }, { "file": "yii" }] },
+  "test": {
+    "suites": ["unit", "functional"],
+    "commands": {
+      "file": "php vendor/bin/codecept run {suite} {path} --no-colors",
+      "suite": "php vendor/bin/codecept run {suite} --no-colors",
+      "lint": "php -l {file}"
+    },
+    "rules": [
+      "Codeception suites initialise Yii2 and may use transaction-backed database tests even under unit/.",
+      "Use the test configuration and the test database only; never reset or migrate the application database to run tests.",
+      "Keep real personal data out of fixtures."
+    ]
+  },
+  "code_dir_hints": ["src", "app", "backend", "frontend"],
+  "docker_service_hints": ["php", "app", "fpm"],
+  "architect_triggers": [
+    "new entity or non-trivial migration",
+    "RBAC or access model change",
+    "public REST API change",
+    "import or export, external integration",
+    "change touching several modules or shared services",
+    "performance or data-volume requirements"
+  ],
+  "review_checklist": [
+    "authorization and RBAC on every changed entry point",
+    "validation of user input (rules(), scenarios)",
+    "transaction boundaries",
+    "migration safety and rollback",
+    "personal data exposure"
+  ],
+  "forbidden_paths": ["**/.env", "**/.env.*", "**/auth.json", "**/certs/**"]
+}

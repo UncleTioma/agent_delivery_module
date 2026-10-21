@@ -1,0 +1,13 @@
+{
+  "type": "object",
+  "required": ["sufficient", "missing", "track", "architect_triggers", "risks", "needs_human_approval", "estimate_files"],
+  "properties": {
+    "sufficient": {"type": "boolean"},
+    "missing": {"type": "array", "items": {"type": "string"}},
+    "track": {"type": "string", "enum": ["S", "M", "L"]},
+    "architect_triggers": {"type": "array", "items": {"type": "string"}},
+    "risks": {"type": "array", "items": {"type": "string"}},
+    "needs_human_approval": {"type": "array", "items": {"type": "string", "enum": ["migration", "rbac", "new_dependency", "data_deletion"]}},
+    "estimate_files": {"type": "integer"}
+  }
+}

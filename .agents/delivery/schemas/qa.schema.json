@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "required": ["verdict", "criteria", "regressions"],
+  "properties": {
+    "verdict": {"type": "string", "enum": ["pass", "fail", "blocked"]},
+    "criteria": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "status", "evidence"],
+        "properties": {
+          "id": {"type": "string"},
+          "status": {"type": "string", "enum": ["pass", "fail", "manual"]},
+          "evidence": {"type": "string"},
+          "details": {"type": "string"}
+        }
+      }
+    },
+    "regressions": {"type": "array", "items": {"type": "string"}}
+  }
+}

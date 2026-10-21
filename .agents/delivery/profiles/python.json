@@ -1,0 +1,36 @@
+{
+  "id": "python",
+  "label": "Python (Django, FastAPI, Flask, scripts)",
+  "runtime": "python",
+  "detect": { "weight": 1, "any": [{ "file": "pyproject.toml" }, { "file": "requirements.txt" }, { "file": "manage.py" }, { "file": "setup.py" }, { "file": "Pipfile" }] },
+  "test": {
+    "suites": [],
+    "commands": {
+      "file": "python -m pytest {path} -q",
+      "suite": "python -m pytest -q",
+      "lint": "python -m py_compile {file}"
+    },
+    "rules": [
+      "Use the test settings and a test database only; never run destructive migrations or flushes against the application database.",
+      "Run tests inside the virtual environment of the project if one exists."
+    ]
+  },
+  "code_dir_hints": ["src", "app", "api"],
+  "docker_service_hints": ["app", "web", "api", "backend", "python"],
+  "architect_triggers": [
+    "new model or non-trivial migration",
+    "authentication or permission model change",
+    "public API contract change",
+    "background jobs or external integration",
+    "change touching several apps or shared modules",
+    "performance or data-volume requirements"
+  ],
+  "review_checklist": [
+    "authorization on every changed endpoint or view",
+    "input validation (serializers, pydantic models, forms)",
+    "transaction boundaries and N+1 queries",
+    "migration safety and rollback",
+    "personal data exposure and secrets in code"
+  ],
+  "forbidden_paths": ["**/.env", "**/.env.*", "**/secrets.*", "**/*.pem"]
+}
