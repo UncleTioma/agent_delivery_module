@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os';
 import { resolve, dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { moduleDir } from './util.mjs';
-import { proposeRoles, checkToolOutput } from './tools.mjs';
+import * as toolsMod from './tools.mjs';
+const { proposeRoles, checkToolOutput } = toolsMod;
 
 const results = [];
 const check = (name, ok, detail = '') => results.push({ name, ok: !!ok, detail: ok ? '' : String(detail) });
@@ -135,6 +136,231 @@ export function selftest() {
     check('roles: single tool -> weak independence flagged', onlyClaude.weakIndependence === true && onlyClaude.warnings.length === 1);
     check('output: detects agy auto-deny', !checkToolOutput('jetski: no output produced ... auto-denied {"response":""}').ok);
     check('output: accepts normal output', checkToolOutput('{"status":"SUCCESS","response":"done"}').ok);
+
+    const allRoles = ['ba', 'teamlead', 'architect', 'qa_design', 'dev', 'review', 'qa_run', 'report'];
+    const allFound = tools(true, true, true);
+    const canon = (t) => (t === 'gemini' ? 'antigravity' : t);
+
+    const subsetPlan = proposeRoles(pref, allFound, ['claude', 'codex']);
+    check('ac1: tools_enabled restricts available and roles',
+      subsetPlan.available.length === 2
+      && subsetPlan.available.includes('claude')
+      && subsetPlan.available.includes('codex')
+      && allRoles.every((r) => ['claude', 'codex'].includes(subsetPlan.roles?.[r])),
+      JSON.stringify(subsetPlan));
+
+    const defaultPlan = proposeRoles(pref, tools(true, false, true));
+    check('ac2: unset tools_enabled uses all found tools with full independence',
+      defaultPlan.available.length === 2
+      && defaultPlan.roles?.dev === 'claude'
+      && defaultPlan.roles?.review === 'antigravity'
+      && defaultPlan.roles?.qa_design === 'antigravity'
+      && defaultPlan.roles?.qa_run === 'antigravity'
+      && Array.isArray(defaultPlan.weakRoles) && defaultPlan.weakRoles.length === 0,
+      JSON.stringify(defaultPlan));
+
+    const missingToolPlan = proposeRoles(pref, tools(true, false, true), ['claude', 'codex']);
+    check('ac3: tools_enabled with missing tool reports problem',
+      Array.isArray(missingToolPlan.problems)
+      && missingToolPlan.problems.some((p) => /codex/i.test(p)),
+      JSON.stringify(missingToolPlan));
+
+    const emptySetPlan = proposeRoles(pref, allFound, []);
+    check('ac3: empty tools_enabled reports problem and no available tools',
+      emptySetPlan.available.length === 0
+      && Array.isArray(emptySetPlan.problems)
+      && emptySetPlan.problems.length > 0,
+      JSON.stringify(emptySetPlan));
+
+    const combos = [
+      ['claude', ['claude'], true],
+      ['codex', ['codex'], true],
+      ['gemini', ['gemini'], true],
+      ['claude+codex', ['claude', 'codex'], false],
+      ['gemini+claude', ['gemini', 'claude'], false],
+      ['gemini+codex', ['gemini', 'codex'], false],
+      ['claude+codex+gemini', ['claude', 'codex', 'gemini'], false],
+    ];
+    for (const [label, enabled, expectWeak] of combos) {
+      const expectedTools = enabled.map(canon);
+      const p = proposeRoles(pref, allFound, enabled);
+      const assigned = allRoles.map((r) => p.roles?.[r]);
+      const allAssignedInSet = assigned.every((t) => expectedTools.includes(t));
+      const allEnabledUsed = expectedTools.every((t) => assigned.includes(t));
+      const separated = expectWeak
+        ? assigned.every((t) => t === expectedTools[0])
+        : (p.roles?.review !== p.roles?.dev && p.roles?.qa_design !== p.roles?.dev && p.roles?.qa_run !== p.roles?.dev);
+      const weakOk = expectWeak
+        ? (p.weakIndependence === true
+          && Array.isArray(p.weakRoles)
+          && ['review', 'qa_design', 'qa_run'].every((r) => p.weakRoles.includes(r))
+          && Array.isArray(p.mitigations) && p.mitigations.length >= 4)
+        : (p.weakIndependence === false
+          && Array.isArray(p.weakRoles) && p.weakRoles.length === 0
+          && Array.isArray(p.mitigations) && p.mitigations.length === 0);
+      check(`combo ${label}: roles, coverage and independence`,
+        allAssignedInSet && allEnabledUsed && separated && weakOk,
+        JSON.stringify(p));
+    }
+
+    const qaConflictPref = { ...pref, dev: 'codex', review: 'claude', qa_design: 'codex', qa_run: 'codex' };
+    const qaSeparated = proposeRoles(qaConflictPref, allFound, ['claude', 'codex']);
+    check('ac15: qa_design and qa_run separated from dev when possible',
+      qaSeparated.roles?.dev === 'codex'
+      && qaSeparated.roles?.qa_design === 'claude'
+      && qaSeparated.roles?.qa_run === 'claude'
+      && qaSeparated.weakIndependence === false,
+      JSON.stringify(qaSeparated));
+
+    const epDir = fixture(base, 'entrypoints', { 'package.json': JSON.stringify({ name: 'ep' }) });
+    cli(epDir, 'install');
+    const epAll = toolsMod.checkEntryPoints?.(epDir, ['claude', 'codex', 'gemini']);
+    check('ac7-ac8: entry points present for all tools', epAll?.ok === true && epAll?.missing?.length === 0, JSON.stringify(epAll));
+    rmSync(resolve(epDir, '.claude/skills/deliver/SKILL.md'), { force: true });
+    const epNoClaudeConductor = toolsMod.checkEntryPoints?.(epDir, ['codex', 'gemini']);
+    check('ac7: codex and gemini entry points valid without .claude/skills', epNoClaudeConductor?.ok === true, JSON.stringify(epNoClaudeConductor));
+    const epMissingClaude = toolsMod.checkEntryPoints?.(epDir, ['claude']);
+    check('ac8: missing claude entry point detected', epMissingClaude?.ok === false && epMissingClaude?.missing?.length > 0, JSON.stringify(epMissingClaude));
+    rmSync(resolve(epDir, '.agents/skills/deliver/SKILL.md'), { force: true });
+    const epMissingAgents = toolsMod.checkEntryPoints?.(epDir, ['codex']);
+    check('ac8: missing .agents/skills entry point detected for codex/gemini', epMissingAgents?.ok === false && epMissingAgents?.missing?.length > 0, JSON.stringify(epMissingAgents));
+
+    const cmdHeadlessCodex = toolsMod.resolveCommand?.('claude', { ...cfg, tools_enabled: ['claude', 'codex'] }, { conductor: 'codex' });
+    const cmdHeadlessGemini = toolsMod.resolveCommand?.('claude', { ...cfg, tools_enabled: ['gemini', 'claude'] }, { conductor: 'antigravity' });
+    check('ac9: claude runs as headless claude -p under non-Claude conductor',
+      typeof cmdHeadlessCodex === 'string' && /^claude\s+-p\b/.test(cmdHeadlessCodex) && cmdHeadlessCodex.includes('{prompt}')
+      && typeof cmdHeadlessGemini === 'string' && /^claude\s+-p\b/.test(cmdHeadlessGemini),
+      `${cmdHeadlessCodex} | ${cmdHeadlessGemini}`);
+    const cmdSubagent = toolsMod.resolveCommand?.('claude', cfg, { conductor: 'claude' });
+    check('ac10: claude runs as subagent under Claude Code conductor', cmdSubagent === 'subagent', String(cmdSubagent));
+    const cmdDisabledClaude = toolsMod.resolveCommand?.('claude', { ...cfg, tools_enabled: ['codex', 'gemini'] }, { conductor: 'codex' });
+    check('ac11: disabled claude not resolved under non-Claude conductor', cmdDisabledClaude === null, String(cmdDisabledClaude));
+
+    const indSingle = toolsMod.evaluateIndependence?.(onlyClaude.roles);
+    check('ac13-ac16: single tool independence report lists review, qa_design, qa_run and mitigations',
+      indSingle?.weakIndependence === true
+      && ['review', 'qa_design', 'qa_run'].every((r) => indSingle?.weakRoles?.includes(r))
+      && indSingle?.mitigations?.length >= 4
+      && /weak independence/i.test(indSingle?.reportBadge ?? '')
+      && ['review', 'qa_design', 'qa_run'].every((r) => (indSingle?.reportBadge ?? '').includes(r)),
+      JSON.stringify(indSingle));
+
+    const indPartial = toolsMod.evaluateIndependence?.({ ...pref, dev: 'codex', review: 'claude', qa_design: 'codex', qa_run: 'antigravity' });
+    check('ac14-ac16: partial overlap flags only matching QA role with mitigations',
+      indPartial?.weakIndependence === true
+      && indPartial?.weakRoles?.length === 1 && indPartial?.weakRoles?.[0] === 'qa_design'
+      && /weak independence/i.test(indPartial?.reportBadge ?? '')
+      && (indPartial?.reportBadge ?? '').includes('qa_design')
+      && !(indPartial?.reportBadge ?? '').includes('review'),
+      JSON.stringify(indPartial));
+
+    const indFull = toolsMod.evaluateIndependence?.(pref);
+    check('ac12-ac17: full independence has no weak independence marker',
+      indFull?.weakIndependence === false
+      && indFull?.weakRoles?.length === 0
+      && (indFull?.reportBadge ?? null) === '',
+      JSON.stringify(indFull));
+
+    const cfgDir = resolve(epDir, '.agents/delivery/project.json');
+    cli(epDir, 'install');
+    const baseEpCfg = JSON.parse(readFileSync(cfgDir, 'utf8'));
+    baseEpCfg.configured = true; baseEpCfg.language = 'uk'; baseEpCfg.base_branch = 'main';
+    baseEpCfg.test.commands.file = 'node --test {path}';
+
+    writeFileSync(cfgDir, JSON.stringify({ ...baseEpCfg, tools_enabled: [] }, null, 2));
+    const emptyCfgRes = cli(epDir, 'config');
+    check('ac3: config command rejects empty tools_enabled',
+      emptyCfgRes.code === 1 && (emptyCfgRes.json?.errors ?? []).some((e) => /tools_enabled/i.test(e)),
+      emptyCfgRes.raw);
+
+    const singleClaudeRoles = Object.fromEntries(allRoles.map((r) => [r, 'claude']));
+    writeFileSync(cfgDir, JSON.stringify({ ...baseEpCfg, tools_enabled: ['claude'], roles: singleClaudeRoles }, null, 2));
+    const singleCfgRes = cli(epDir, 'config');
+    check('ac4-ac13: config command accepts single enabled tool with dev == review', singleCfgRes.code === 0 && singleCfgRes.json?.ok === true, singleCfgRes.raw);
+
+    writeFileSync(cfgDir, JSON.stringify({ ...baseEpCfg, tools_enabled: ['claude', 'codex'], roles: { ...pref, qa_design: 'antigravity', qa_run: 'claude' } }, null, 2));
+    const disabledRoleRes = cli(epDir, 'config');
+    check('ac6: config command rejects manual role assigned to disabled tool',
+      disabledRoleRes.code === 1
+      && (disabledRoleRes.json?.errors ?? []).some((e) => e.includes('qa_design') && e.includes('antigravity')),
+      disabledRoleRes.raw);
+
+    const validPairRoles = { ba: 'claude', teamlead: 'claude', architect: 'claude', qa_design: 'claude', dev: 'codex', review: 'claude', qa_run: 'claude', report: 'claude' };
+    writeFileSync(cfgDir, JSON.stringify({ ...baseEpCfg, tools_enabled: ['claude', 'codex'], roles: validPairRoles, roles_confirmed: true }, null, 2));
+    const legacySigRes = cli(epDir, 'config');
+    const afterLegacyCfg = JSON.parse(readFileSync(cfgDir, 'utf8'));
+    check('ac20: roles_confirmed without signature resets once without crash',
+      legacySigRes.code === 0 && legacySigRes.json?.ok === true && afterLegacyCfg.roles_confirmed === false,
+      `${legacySigRes.raw} :: ${JSON.stringify(afterLegacyCfg)}`);
+
+    const sig = toolsMod.rolesSignature?.({ tools_enabled: ['claude', 'codex'], roles: validPairRoles });
+    writeFileSync(cfgDir, JSON.stringify({ ...baseEpCfg, tools_enabled: ['claude', 'codex'], roles: validPairRoles, roles_confirmed: true, roles_signature: sig ?? 'missing' }, null, 2));
+    const validSigRes = cli(epDir, 'config');
+    const afterValidSigCfg = JSON.parse(readFileSync(cfgDir, 'utf8'));
+    check('ac18: matching roles_signature keeps roles_confirmed true',
+      typeof sig === 'string' && sig.length > 0 && validSigRes.code === 0 && afterValidSigCfg.roles_confirmed === true,
+      JSON.stringify(afterValidSigCfg));
+
+    writeFileSync(cfgDir, JSON.stringify({ ...baseEpCfg, tools_enabled: ['claude', 'codex', 'gemini'], roles: validPairRoles, roles_confirmed: true, roles_signature: sig ?? 'missing' }, null, 2));
+    cli(epDir, 'config');
+    const afterToolsChangeCfg = JSON.parse(readFileSync(cfgDir, 'utf8'));
+    check('ac19: changing tools_enabled resets roles_confirmed',
+      typeof sig === 'string' && afterToolsChangeCfg.roles_confirmed === false,
+      JSON.stringify(afterToolsChangeCfg));
+
+    writeFileSync(cfgDir, JSON.stringify({ ...baseEpCfg, tools_enabled: ['claude', 'codex'], roles: { ...validPairRoles, ba: 'codex' }, roles_confirmed: true, roles_signature: sig ?? 'missing' }, null, 2));
+    cli(epDir, 'config');
+    const afterRoleChangeCfg = JSON.parse(readFileSync(cfgDir, 'utf8'));
+    check('ac19: changing role map resets roles_confirmed',
+      typeof sig === 'string' && afterRoleChangeCfg.roles_confirmed === false,
+      JSON.stringify(afterRoleChangeCfg));
+
+    const permsOnlyClaude = toolsMod.proposePermissions({ ...cfg, roles: singleClaudeRoles }, singleClaudeRoles);
+    check('ac21: permissions for claude-only omit antigravity, codex exec and agy -p',
+      'claude' in permsOnlyClaude
+      && !('antigravity' in permsOnlyClaude)
+      && !permsOnlyClaude.claude.allow.some((r) => /codex exec|agy -p/.test(r)),
+      JSON.stringify(permsOnlyClaude));
+
+    const permsClaudeCodex = toolsMod.proposePermissions({ ...cfg, roles: validPairRoles }, validPairRoles);
+    check('ac21: permissions for claude+codex include codex exec but omit antigravity and agy -p',
+      'claude' in permsClaudeCodex
+      && !('antigravity' in permsClaudeCodex)
+      && permsClaudeCodex.claude.allow.includes('Bash(codex exec:*)')
+      && !permsClaudeCodex.claude.allow.some((r) => /agy -p/.test(r)),
+      JSON.stringify(permsClaudeCodex));
+
+    const codexAgyRoles = { ba: 'antigravity', teamlead: 'antigravity', architect: 'antigravity', qa_design: 'antigravity', dev: 'codex', review: 'antigravity', qa_run: 'antigravity', report: 'antigravity' };
+    const permsCodexAgy = toolsMod.proposePermissions({ ...cfg, code_dirs: ['src/'], test_dirs: ['tests/'], roles: codexAgyRoles }, codexAgyRoles);
+    check('ac21: permissions for codex+gemini omit claude and do not grant code_dirs write when agy is not dev',
+      !('claude' in permsCodexAgy)
+      && 'antigravity' in permsCodexAgy
+      && permsCodexAgy.antigravity.allow.includes('write_file(tests/)')
+      && !permsCodexAgy.antigravity.allow.includes('write_file(src/)'),
+      JSON.stringify(permsCodexAgy));
+
+    const onlyAgyRoles = Object.fromEntries(allRoles.map((r) => [r, 'antigravity']));
+    const permsOnlyAgy = toolsMod.proposePermissions({ ...cfg, code_dirs: ['src/'], test_dirs: ['tests/'], roles: onlyAgyRoles }, onlyAgyRoles);
+    check('ac21: permissions for gemini-only grant write_file on code_dirs because agy is dev',
+      !('claude' in permsOnlyAgy)
+      && 'antigravity' in permsOnlyAgy
+      && permsOnlyAgy.antigravity.allow.includes('write_file(src/)')
+      && permsOnlyAgy.antigravity.allow.includes('write_file(tests/)'),
+      JSON.stringify(permsOnlyAgy));
+
+    const readmeText = readFileSync(resolve(moduleDir, 'README.md'), 'utf8');
+    const deliverRoleText = readFileSync(resolve(moduleDir, 'roles/deliver.md'), 'utf8');
+    const reportRoleText = readFileSync(resolve(moduleDir, 'roles/report.md'), 'utf8');
+    check('ac23: README documents tools_enabled, 7 combinations, claude -p, weak independence and signature reset',
+      readmeText.includes('tools_enabled')
+      && readmeText.includes('claude -p')
+      && /weak independence/i.test(readmeText)
+      && /roles_confirmed|roles_signature/.test(readmeText),
+      'missing required sections in README.md');
+    check('ac7-ac9-ac16: deliver.md and report.md document claude -p and weak independence',
+      deliverRoleText.includes('claude -p')
+      && /weak independence/i.test(reportRoleText),
+      'missing claude -p or weak independence in role docs');
   } finally {
     rmSync(base, { recursive: true, force: true });
   }
