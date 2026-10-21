@@ -335,8 +335,8 @@ const WRITE_FAILURE_RE = /\bEROFS\b|read-only file system|(?:unable|cannot|can't
 
 /** agy-style output: first non-empty line is a JSON object with a "response" key (response text may quote error words as data). */
 function isJsonEnvelope(text) {
-  const line = text.split('
-').find((l) => l.trim());
+  const line = text.split(/?
+/).find((l) => l.trim());
   try { const o = line && JSON.parse(line); return !!o && typeof o === 'object' && 'response' in o; } catch { return false; }
 }
 
