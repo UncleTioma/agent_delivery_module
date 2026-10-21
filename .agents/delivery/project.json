@@ -1,9 +1,9 @@
 {
   "module_version": "0.2.0",
-  "configured": false,
-  "profile": "generic",
+  "configured": true,
+  "profile": "node",
   "project": "agent_delivery_module",
-  "language": null,
+  "language": "uk",
   "instructions_file": null,
   "base_branch": "main",
   "branch_prefix": "ai/",
@@ -11,10 +11,10 @@
   "task_dir": ".work/tasks",
   "app_dir": ".",
   "code_dirs": [
-    "src/"
+    ".agents/delivery/"
   ],
   "test_dirs": [
-    "tests/"
+    ".agents/delivery/lib/selftest.mjs"
   ],
   "test": {
     "env": "local",
@@ -23,8 +23,8 @@
     "workdir": null,
     "suites": [],
     "commands": {
-      "file": null,
-      "suite": null,
+      "file": "node .agents/delivery/delivery.mjs selftest",
+      "suite": "node .agents/delivery/delivery.mjs selftest",
       "lint": null
     },
     "rules": [
@@ -83,38 +83,7 @@
     "max_questions": 7
   },
   "publish": false,
-  "roles_confirmed": false,
-  "permissions_confirmed": false,
-  "unresolved": [
-    {
-      "key": "test.commands.file",
-      "question": "Which command runs a single test file? (use {path} for the file)",
-      "default": null
-    },
-    {
-      "key": "test.commands.suite",
-      "question": "Which command runs the whole test suite?",
-      "default": null
-    },
-    {
-      "key": "profile",
-      "question": "Stack was not recognised. Which language and framework is this project?",
-      "default": null
-    },
-    {
-      "key": "instructions_file",
-      "question": "No AGENTS.md or CLAUDE.md found. Create AGENTS.md with a short project map?",
-      "default": "yes"
-    },
-    {
-      "key": "language",
-      "question": "Language for questions and reports?",
-      "default": "en"
-    },
-    {
-      "key": "git",
-      "question": "This folder is not a git repository. Run git init?",
-      "default": "yes"
-    }
-  ]
+  "roles_confirmed": true,
+  "permissions_confirmed": true,
+  "unresolved": []
 }

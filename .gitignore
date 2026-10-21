@@ -2,3 +2,4 @@
 
 # Delivery pipeline task artifacts.
 .work/
+.claude/settings.local.json
