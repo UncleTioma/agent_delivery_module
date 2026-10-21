@@ -61,14 +61,14 @@
     "personal data exposure and secrets in code"
   ],
   "roles": {
-    "ba": "antigravity",
+    "ba": "claude",
     "teamlead": "claude",
-    "architect": "claude",
-    "qa_design": "codex",
-    "dev": "claude",
-    "review": "codex",
-    "qa_run": "codex",
-    "report": "antigravity"
+    "architect": "antigravity",
+    "qa_design": "antigravity",
+    "dev": "codex",
+    "review": "antigravity",
+    "qa_run": "antigravity",
+    "report": "claude"
   },
   "commands": {
     "codex": "codex exec --sandbox workspace-write \"{prompt}\"",
@@ -86,5 +86,5 @@
   "roles_confirmed": true,
   "permissions_confirmed": true,
   "unresolved": [],
-  "roles_signature": "8a5274caf80ec5072ec3f80b4b30204a53f3d095"
+  "roles_signature": "24b8067859a976958c11e3614481689959751aa3"
 }
