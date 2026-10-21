@@ -22,9 +22,18 @@ import { validate } from './lib/schema.mjs';
 import { detect, buildDraft } from './lib/detect.mjs';
 import {
   inspectTools, inspectBasics, proposeRoles, permsPlan, permsApply, checkToolOutput,
+  normalizeTools, checkEntryPoints, detectConductor, resolveCommand, evaluateIndependence, rolesSignature,
 } from './lib/tools.mjs';
 
 const [cmd, ...args] = process.argv.slice(2);
+
+function enforceRolesSignature(cfg) {
+  if (cfg.roles_confirmed !== true || cfg.roles_signature === rolesSignature(cfg)) return false;
+  cfg.roles_confirmed = false;
+  cfg.permissions_confirmed = false;
+  writeFileSync(resolve(moduleDir, 'project.json'), JSON.stringify(cfg, null, 2) + '\n');
+  return true;
+}
 
 function cmdConfig() {
   const cfg = loadConfig();
@@ -34,9 +43,20 @@ function cmdConfig() {
     if (!roles[r]) errors.push(`roles.${r} not set`);
     else if (!cfg.commands?.[roles[r]]) errors.push(`roles.${r} uses tool '${roles[r]}' without commands entry`);
   }
-  if (roles.dev && roles.dev === roles.review) {
-    errors.push('author and reviewer use the same tool (roles.dev == roles.review)');
+  if ('tools_enabled' in cfg) {
+    if (!Array.isArray(cfg.tools_enabled) || !cfg.tools_enabled.length) {
+      errors.push('tools_enabled має бути непорожнім масивом інструментів');
+    } else {
+      const enabled = normalizeTools(cfg.tools_enabled);
+      for (const t of enabled.unknown) errors.push(`tools_enabled: невідомий інструмент '${t}'`);
+      for (const [role, tool] of Object.entries(roles)) {
+        if (!enabled.tools.includes(tool === 'gemini' ? 'antigravity' : tool)) {
+          errors.push(`roles.${role} uses tool '${tool}' which is not in tools_enabled`);
+        }
+      }
+    }
   }
+  const independence = evaluateIndependence(roles);
   const skill = cfg.test?.skill;
   if (skill && !existsSync(resolve(root, '.agents/skills', skill))) {
     errors.push(`test.skill '${skill}' not found under .agents/skills`);
@@ -45,7 +65,11 @@ function cmdConfig() {
     if (!cfg.language) errors.push('language not set');
     if (!skill && !cfg.test?.commands?.file) errors.push('no way to run a single test file: set test.commands.file or test.skill');
   }
-  out({ ok: errors.length === 0, errors, configured: cfg.configured === true, unresolved: cfg.unresolved ?? [] }, errors.length ? 1 : 0);
+  const rolesReset = enforceRolesSignature(cfg);
+  out({
+    ok: errors.length === 0, errors, configured: cfg.configured === true, unresolved: cfg.unresolved ?? [],
+    independence, warnings: independence.weakIndependence ? [independence.reportBadge] : [], roles_reset: rolesReset,
+  }, errors.length ? 1 : 0);
 }
 
 function cmdDetect() {
@@ -208,21 +232,34 @@ function cmdDoctor() {
   const cfg = loadConfig();
   const tools = inspectTools({ probe: args.includes('--probe') });
   const basics = inspectBasics(cfg);
-  const plan = proposeRoles(cfg.roles ?? {}, tools);
-  const problems = [];
+  const plan = proposeRoles(cfg.roles ?? {}, tools, cfg.tools_enabled);
+  const problems = [...plan.problems];
+  if ('tools_enabled' in cfg && !Array.isArray(cfg.tools_enabled)) {
+    problems.push('tools_enabled має бути непорожнім масивом інструментів');
+  }
+  const entry = checkEntryPoints(root, Array.isArray(cfg.tools_enabled) ? cfg.tools_enabled : plan.available);
+  problems.push(...entry.problems);
   if (!basics.git) problems.push('git not found');
   if (basics.docker.needed && !basics.docker.ok) problems.push('docker compose is not reachable, but tests run in Docker');
   if (!plan.available.length) problems.push('no supported AI tool found (claude, codex, agy)');
   let applied = false;
-  if (args.includes('--apply')) {
-    if (plan.changes.length) cfg.roles = plan.roles;
+  if (args.includes('--apply') && !problems.length) {
+    cfg.roles = plan.roles;
+    const signature = rolesSignature(cfg);
+    if (cfg.roles_signature !== signature) cfg.permissions_confirmed = false;
     cfg.roles_confirmed = true;
+    cfg.roles_signature = signature;
     writeFileSync(resolve(moduleDir, 'project.json'), JSON.stringify(cfg, null, 2) + '\n');
     applied = true;
   }
+  const conductor = detectConductor(cfg);
   out({
     ok: problems.length === 0, basics, tools,
-    proposal: { roles: plan.roles, changes: plan.changes, warnings: plan.warnings, weak_independence: !!plan.weakIndependence },
+    proposal: {
+      roles: plan.roles, changes: plan.changes, warnings: plan.warnings, weak_independence: !!plan.weakIndependence,
+      weak_roles: plan.weakRoles, mitigations: plan.mitigations, report_badge: plan.reportBadge,
+      conductor, claude_command: resolveCommand('claude', cfg, { conductor }),
+    },
     problems, applied,
   }, problems.length ? 1 : 0);
 }

@@ -34,11 +34,14 @@
     "architect_triggers": { "type": "array", "items": { "type": "string" } },
     "human_approval": { "type": "array", "items": { "type": "string" } },
     "review_checklist": { "type": "array", "items": { "type": "string" } },
+    "tools_enabled": { "type": "array", "items": { "type": "string" } },
+    "conductor": { "type": ["string", "null"] },
     "roles": { "type": "object" },
     "commands": { "type": "object" },
     "limits": { "type": "object" },
     "publish": { "type": "boolean" },
     "roles_confirmed": { "type": "boolean" },
+    "roles_signature": { "type": "string" },
     "permissions_confirmed": { "type": "boolean" },
     "unresolved": { "type": "array" }
   }

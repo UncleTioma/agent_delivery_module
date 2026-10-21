@@ -3,10 +3,22 @@ import { existsSync, readFileSync, writeFileSync, copyFileSync, mkdirSync } from
 import { resolve, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { root, readJson, run } from './util.mjs';
 
 const WIN = process.platform === 'win32';
 const TOOLS = ['claude', 'codex', 'antigravity'];
+const ROLES = ['ba', 'teamlead', 'architect', 'qa_design', 'dev', 'review', 'qa_run', 'report'];
+
+function canonicalTool(tool) {
+  return tool === 'gemini' ? 'antigravity' : tool;
+}
+
+/** Canonical tool names in stable order, with invalid names kept for diagnostics. */
+export function normalizeTools(list) {
+  const names = new Set(list.map(canonicalTool));
+  return { tools: TOOLS.filter((t) => names.has(t)), unknown: [...names].filter((t) => !TOOLS.includes(t)) };
+}
 const BINARY = { claude: 'claude', codex: 'codex', antigravity: 'agy' };
 
 /** Fresh PATH from the registry on Windows: a shell started before an install does not see new tools. */
@@ -84,30 +96,93 @@ const FALLBACK = {
   default: ['claude', 'antigravity', 'codex'],
 };
 
-/** Propose a role -> tool map using only available tools, keeping author != reviewer when possible. */
-export function proposeRoles(preferred, tools) {
-  const available = TOOLS.filter((t) => tools[t]?.found && tools[t]?.flagsOk !== false && tools[t]?.authorized !== false);
+/** Propose all roles using the enabled, usable tools, separating review and QA from dev. */
+export function proposeRoles(preferred, tools, toolsEnabled) {
+  const enabled = normalizeTools(Array.isArray(toolsEnabled) ? toolsEnabled : TOOLS);
+  const problems = enabled.unknown.map((t) => `tools_enabled: невідомий інструмент '${t}'`);
+  if (Array.isArray(toolsEnabled) && !toolsEnabled.length) problems.push('tools_enabled порожній');
+  const available = enabled.tools.filter((t) => tools[t]?.found && tools[t]?.flagsOk !== false && tools[t]?.authorized !== false);
+  if (Array.isArray(toolsEnabled)) {
+    for (const t of enabled.tools) {
+      if (!available.includes(t)) problems.push(`tools_enabled: інструмент '${t}' недоступний (наявність, прапорці або авторизація)`);
+    }
+  }
   const changes = [];
   const warnings = [];
   const roles = {};
-  if (!available.length) return { available, roles: preferred, changes, warnings: ['no supported tool found'] };
-  for (const [role, want] of Object.entries(preferred)) {
+  if (!available.length) return {
+    available, roles: preferred, changes, warnings: ['no supported tool found'], problems,
+    weakIndependence: false, weakRoles: [], mitigations: [], reportBadge: '',
+  };
+  const desired = { ...Object.fromEntries(ROLES.map((r) => [r, undefined])), ...preferred };
+  for (const [role, value] of Object.entries(desired)) {
+    const want = canonicalTool(value);
     if (available.includes(want)) { roles[role] = want; continue; }
     const order = FALLBACK[role] ?? FALLBACK.default;
     const pick = order.find((t) => available.includes(t));
     roles[role] = pick;
     changes.push({ role, from: want, to: pick });
   }
-  if (roles.dev === roles.review) {
-    const other = (FALLBACK.review).find((t) => available.includes(t) && t !== roles.dev);
+  for (const role of ['review', 'qa_design', 'qa_run']) {
+    if (roles[role] !== roles.dev) continue;
+    const other = FALLBACK[role].find((t) => available.includes(t) && t !== roles.dev);
     if (other) {
-      changes.push({ role: 'review', from: roles.review, to: other });
-      roles.review = other;
-    } else {
-      warnings.push(`only one tool available (${roles.dev}): reviewer and developer use the same tool; use a different model for the reviewer and treat the review as weaker`);
+      changes.push({ role, from: roles[role], to: other });
+      roles[role] = other;
     }
   }
-  return { available, roles, changes, warnings, weakIndependence: roles.dev === roles.review };
+  const independence = evaluateIndependence(roles);
+  if (independence.weakIndependence) warnings.push(independence.reportBadge);
+  return { available, roles, changes, warnings, problems, ...independence };
+}
+
+export function evaluateIndependence(roles) {
+  const weakRoles = ['review', 'qa_design', 'qa_run'].filter((r) => roles[r] && roles[r] === roles.dev);
+  const mitigations = weakRoles.length ? [
+    'Свіжий процес без контексту dev для кожної ролі, що збіглася',
+    'Інша модель, якщо команда має плейсхолдер {model}; інакше пропустити без помилки',
+    'Перевірка за чеклистом і diff',
+    'Активні lock-tests і guard',
+  ] : [];
+  return {
+    weakIndependence: weakRoles.length > 0, weakRoles, mitigations,
+    reportBadge: weakRoles.length ? `weak independence: dev (${roles.dev}) збігається з ${weakRoles.join(', ')}. Пом’якшення: ${mitigations.join('; ')}.` : '',
+  };
+}
+
+export function checkEntryPoints(rootDir, toolsEnabled) {
+  const enabled = normalizeTools(toolsEnabled ?? TOOLS);
+  const missing = [];
+  const problems = enabled.unknown.map((t) => `tools_enabled: невідомий інструмент '${t}'`);
+  for (const tool of enabled.tools) {
+    const file = `${tool === 'claude' ? '.claude' : '.agents'}/skills/deliver/SKILL.md`;
+    if (existsSync(resolve(rootDir, file))) continue;
+    if (!missing.includes(file)) missing.push(file);
+    problems.push(`немає точки входу для ${tool}: ${file}`);
+  }
+  return { ok: problems.length === 0, missing, problems };
+}
+
+export function detectConductor(cfg, env = process.env) {
+  if (cfg.conductor != null) return normalizeTools([cfg.conductor]).tools[0] ?? null;
+  return env.CLAUDECODE === '1' || env.CLAUDE_CODE_SESSION_ID ? 'claude' : null;
+}
+
+export function resolveCommand(tool, cfg, { conductor = detectConductor(cfg) } = {}) {
+  tool = canonicalTool(tool);
+  if (cfg.tools_enabled !== undefined
+    && (!Array.isArray(cfg.tools_enabled) || !normalizeTools(cfg.tools_enabled).tools.includes(tool))) return null;
+  if (tool === 'claude') {
+    return canonicalTool(conductor) === 'claude' ? 'subagent' : cfg.commands?.claude_headless ?? 'claude -p "{prompt}"';
+  }
+  return cfg.commands?.[tool] ?? null;
+}
+
+export function rolesSignature(cfg) {
+  const tools = Array.isArray(cfg.tools_enabled) ? normalizeTools(cfg.tools_enabled).tools.slice().sort() : null;
+  const roles = Object.fromEntries(Object.entries(cfg.roles ?? {}).sort(([a], [b]) => a.localeCompare(b))
+    .map(([role, tool]) => [role, canonicalTool(tool)]));
+  return createHash('sha1').update(JSON.stringify({ tools, roles })).digest('hex');
 }
 
 // ---------------------------------------------------------------- permissions
@@ -134,11 +209,14 @@ function agyRule(prefix, win) {
   return win ? `command(regex:${escapeRegex(prefix)}( .*)?)` : `command(${prefix})`;
 }
 
-export function proposePermissions(cfg) {
+export function proposePermissions(cfg, roles = cfg.roles) {
+  roles = Object.fromEntries(Object.entries(roles ?? {}).map(([role, tool]) => [role, canonicalTool(tool)]));
+  const used = new Set(Object.values(roles));
   const win = WIN;
   const claudeAllow = [
     'Bash(node .agents/delivery/delivery.mjs:*)',
-    'Bash(codex exec:*)', 'Bash(agy -p:*)',
+    ...(used.has('codex') ? ['Bash(codex exec:*)'] : []),
+    ...(used.has('antigravity') ? ['Bash(agy -p:*)'] : []),
     'Bash(git switch:*)', 'Bash(git add:*)', 'Bash(git commit:*)',
     'Bash(git diff:*)', 'Bash(git status:*)', 'Bash(git log:*)',
     ...testCommandPrefixes(cfg).map((p) => `Bash(${p}:*)`),
@@ -150,12 +228,14 @@ export function proposePermissions(cfg) {
     .map((p) => p.replace(/^\*\*\//, ''))
     .filter((p) => !/[*?]/.test(p));
   const testDirs = (cfg.test_dirs ?? []).map((d) => d.replace(/\/*$/, '/'));
+  const codeDirs = (cfg.code_dirs ?? []).map((d) => d.replace(/\/*$/, '/'));
   const agyAllow = [
     ...[...readCmds, ...testCommandPrefixes(cfg), ...(cfg.test?.commands?.lint ? [firstWords(cfg.test.commands.lint, 2)] : [])]
       .map((p) => agyRule(p, win)),
     ...shellRead.map((p) => agyRule(p, win)),
     'read_file(*)',
-    ...testDirs.map((d) => `write_file(${d})`),
+    ...(roles.qa_design === 'antigravity' || roles.dev === 'antigravity' ? testDirs.map((d) => `write_file(${d})`) : []),
+    ...(roles.dev === 'antigravity' ? codeDirs.map((d) => `write_file(${d})`) : []),
     'write_file(.work/)',
   ];
   const denyCmds = ['sudo', 'rm -rf', 'git push', 'git reset', 'git checkout', 'git clean'];
@@ -165,11 +245,13 @@ export function proposePermissions(cfg) {
     'write_file(.git/)',
     ...secrets.flatMap((p) => [`read_file(${p})`, `write_file(${p})`]),
   ];
-  return {
-    claude: { file: resolve(root, '.claude/settings.local.json'), allow: [...new Set(claudeAllow)], deny: [] },
-    antigravity: { file: resolve(homedir(), '.gemini/antigravity-cli/settings.json'), allow: [...new Set(agyAllow)], deny: [...new Set(agyDeny)],
-      note: win ? 'Windows: regex-form rules (plain command(prefix) rules did not match on agy 1.4.4).' : 'Non-Windows: plain command(prefix) rules; verify with a probe run, the regex form may be needed.' },
+  const proposal = {};
+  if (used.has('claude')) proposal.claude = { file: resolve(root, '.claude/settings.local.json'), allow: [...new Set(claudeAllow)], deny: [] };
+  if (used.has('antigravity')) proposal.antigravity = {
+    file: resolve(homedir(), '.gemini/antigravity-cli/settings.json'), allow: [...new Set(agyAllow)], deny: [...new Set(agyDeny)],
+    note: win ? 'Windows: regex-form rules (plain command(prefix) rules did not match on agy 1.4.4).' : 'Non-Windows: plain command(prefix) rules; verify with a probe run, the regex form may be needed.',
   };
+  return proposal;
 }
 
 function mergeList(a = [], b = []) {

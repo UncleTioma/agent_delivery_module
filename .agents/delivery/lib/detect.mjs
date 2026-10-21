@@ -3,7 +3,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve, basename } from 'node:path';
 import { moduleDir, root, readJson, git } from './util.mjs';
 
-export const MODULE_VERSION = '0.2.0';
+export const MODULE_VERSION = readFileSync(resolve(moduleDir, 'VERSION'), 'utf8').trim();
 
 export const DEFAULT_ROLES = {
   ba: 'claude', teamlead: 'claude', architect: 'claude', qa_design: 'antigravity',

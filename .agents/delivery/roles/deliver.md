@@ -11,10 +11,11 @@ Usage: `/deliver <request>` (new task), `/deliver resume <ID>`, `/deliver status
 
 ## Setup
 
-0. **First-run checks** (skip a check once its flag is set in `project.json`):
+0. **First-run checks** (run `config` on every entry to verify confirmation signatures; skip confirmation prompts once their flags are valid in `project.json`):
    - `project.json` missing: run `node .agents/delivery/delivery.mjs install` (creates the skill entry points and a draft config), then continue.
    - Run `node .agents/delivery/delivery.mjs config`. A structural error: stop and report. `configured: false`: run role `init` (`.agents/delivery/roles/init.md`) yourself in this session; it asks the user the open questions in one batch and finishes the config.
-   - `node .agents/delivery/delivery.mjs doctor`. Report `problems` and stop if any is blocking (no AI tool, Docker needed but unreachable). If `proposal.changes` is non-empty and `roles_confirmed` is not true, show the changes (and `warnings`, e.g. weaker review independence) and ask once; on yes run `doctor --apply`.
+   - `tools_enabled` optionally limits the tools to a non-empty list of `claude`, `codex`, `antigravity` (`gemini` is an alias). When absent, use every detected usable tool. Run `node .agents/delivery/delivery.mjs doctor`. Report `problems` and stop if any are present: an enabled tool is unavailable, an entry point is missing, no AI tool is usable, or Docker is needed but unreachable. Run `install` to restore missing skill entry points, then retry.
+   - If `roles_confirmed` is not true, show `proposal.roles`, `changes`, `warnings`, `weak_roles` and `mitigations`, and ask once; on yes run `doctor --apply`, even when `changes` is empty. This saves `roles_signature`. If `config` returned `roles_reset: true`, the tool set or role map changed (or this is a legacy config without a signature): repeat this confirmation and then the permissions check. No separate confirmation for weak independence is needed.
    - `node .agents/delivery/delivery.mjs perms`. If `addAllow`/`addDeny` is non-empty and `permissions_confirmed` is not true, show a short summary per file, ask once, and on yes run `perms --apply`. Never edit tool settings by any other way.
    - Git: not a repository -> offer `git init`. Uncommitted changes -> offer: commit them as a separate commit, stash them, or stop (never discard).
 1. Read `.agents/delivery/project.json` and the file named in `instructions_file`. Human-facing text (questions, report) uses `language`.
@@ -30,11 +31,19 @@ Role file: `.agents/delivery/roles/<role>.md`. Tool: `roles.<role>` in `project.
 
 | Tool | How |
 |------|-----|
-| `claude` | Agent tool, `general-purpose`, with the one-line prompt (fresh context per role). |
+| `claude` | In Claude Code (`conductor: claude`), Agent tool, `general-purpose`, with the one-line prompt (fresh context per role). Under Codex, Gemini or an unknown conductor, use headless `claude -p "{prompt}"` (or `commands.claude_headless`), teeing output to `<task>/logs/<stage>-<n>.log`. |
 | `codex`, `antigravity` | Bash: take `commands.<tool>`, substitute `{prompt}`, run in the repository (or worktree) root, tee output to `<task>/logs/<stage>-<n>.log`. |
 
+Resolve commands through `resolveCommand` in `lib/tools.mjs`; `doctor` displays `proposal.conductor` and `proposal.claude_command`. Set `conductor` explicitly when environment detection is ambiguous. Never launch a disabled tool; a disabled Claude has no assigned role and resolves to `null`. Use shell-appropriate argument quoting when passing the prompt.
+
+For each role listed in `proposal.weak_roles` (or `config.independence.weakRoles`), enforce these mitigations:
+
+- Start a fresh process with only the one-line role prompt and required artifacts; do not reuse dev conversation context, sessions or resume flags. In Claude Code, use a new isolated subagent with no dev context for each Claude role; for headless roles, start a new CLI process. Never pass the dev conversation to that role.
+- If its command has a `{model}` placeholder, choose a model different from dev and substitute it. Otherwise skip model switching without error; do not invent CLI flags.
+- Check the role against its checklist and the relevant diff. Keep QA tests locked and run `guard` after implementation and before review/QA. Record which mitigations actually ran for the report.
+
 After every role:
-- For `codex` and `antigravity` run `node .agents/delivery/delivery.mjs check-output <log>`. Exit code 0 of these tools proves nothing: they silently skip actions that need a permission they do not have. On failure show the reasons, fix the permission (`perms`, with the user's approval) and rerun the role.
+- For `codex`, `antigravity` and headless `claude -p` run `node .agents/delivery/delivery.mjs check-output <log>`. Exit code 0 of these tools proves nothing: they silently skip actions that need a permission they do not have. On failure show the reasons, fix the permission (`perms`, with the user's approval) and rerun the role.
 - The expected artifact must exist and be valid. JSON artifacts: `node .agents/delivery/delivery.mjs validate <schema> <file>`.
 - If the tool could not write outside its sandbox, take its final message and save it as the artifact yourself.
 - Invalid or missing artifact: retry once with the error text appended, then stop and report to the user.
@@ -53,7 +62,7 @@ After every role:
 7. **loop** (iteration 1..`max_iterations`):
    1. `dev` role (iteration 1: plan; later: only `blocker` and `major` findings from `09-review.json` and failing criteria from `10-qa.json`) -> code, `08-dev-log.md`; commit.
    2. `node .agents/delivery/delivery.mjs guard <task>`. Violations (forbidden paths, locked tests changed) -> back to dev once, then stop.
-   3. `review` role -> `09-review.json`. The reviewer tool must differ from the dev tool.
+   3. `review` role -> `09-review.json`. Use a reviewer tool different from dev whenever available; otherwise apply all weak independence mitigations above. Apply the same rule to `qa_design` and `qa_run`.
    4. `qa_run` role -> `10-qa.json`.
    5. Exit the loop when there are no `blocker` findings and every criterion passes. Out of iterations: stop and give the user the open findings.
 8. **report** - role `report` -> `11-report.md`. If `publish` is true, push the branch and open a draft merge request using the report as description; otherwise print the branch name and stop. Never merge, never push to `base_branch`.
