@@ -6,8 +6,8 @@ import { moduleDir, root, readJson, git } from './util.mjs';
 export const MODULE_VERSION = readFileSync(resolve(moduleDir, 'VERSION'), 'utf8').trim();
 
 export const DEFAULT_ROLES = {
-  ba: 'claude', teamlead: 'claude', architect: 'claude', qa_design: 'antigravity',
-  dev: 'codex', review: 'claude', qa_run: 'antigravity', report: 'claude',
+  ba: 'claude', teamlead: 'claude', architect: 'antigravity', qa_design: 'antigravity',
+  dev: 'codex', review: 'antigravity', qa_run: 'antigravity', report: 'claude',
 };
 export const DEFAULT_COMMANDS = {
   codex: 'codex exec --sandbox workspace-write "{prompt}"',

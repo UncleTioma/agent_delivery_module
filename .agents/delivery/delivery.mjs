@@ -23,6 +23,7 @@ import { detect, buildDraft } from './lib/detect.mjs';
 import {
   inspectTools, inspectBasics, proposeRoles, permsPlan, permsApply, checkToolOutput,
   normalizeTools, checkEntryPoints, detectConductor, resolveCommand, evaluateIndependence, rolesSignature,
+  SUBCOMMANDS,
 } from './lib/tools.mjs';
 
 const [cmd, ...args] = process.argv.slice(2);
@@ -225,8 +226,8 @@ function cmdInstall() {
   if (!checkOnly) {
     result.unresolved = unresolved;
     result.next = [
-      'Open Claude Code in this folder and run /deliver <task>: it asks the remaining questions (unresolved) on first run.',
-      'Allow commands in tool settings (Claude permissions.allow, Antigravity regex rules, Codex sandbox).',
+      'Open Claude Code or Codex in this folder (the conductor) and run /deliver <task>: it asks the remaining questions (unresolved) on first run.',
+      'Permissions: run perms, review the proposal, then perms --apply after the human confirms (agy: sandbox and absolute paths).',
     ];
   }
   out(result, problems.length ? 1 : 0);
@@ -236,7 +237,10 @@ function cmdDoctor() {
   const cfg = loadConfig();
   const tools = inspectTools({ probe: args.includes('--probe') });
   const basics = inspectBasics(cfg);
-  const plan = proposeRoles(cfg.roles ?? {}, tools, cfg.tools_enabled, { code_dirs: cfg.code_dirs, test_dirs: cfg.test_dirs });
+  const plan = proposeRoles(cfg.roles ?? {}, tools, cfg.tools_enabled, {
+    code_dirs: cfg.code_dirs, test_dirs: cfg.test_dirs,
+    confirmed: cfg.roles_confirmed === true && cfg.roles_signature === rolesSignature(cfg),
+  });
   const problems = [...plan.problems];
   if ('tools_enabled' in cfg && !Array.isArray(cfg.tools_enabled)) {
     problems.push('tools_enabled має бути непорожнім масивом інструментів');
@@ -261,6 +265,7 @@ function cmdDoctor() {
     ok: problems.length === 0, basics, tools,
     proposal: {
       roles: plan.roles, changes: plan.changes, warnings: plan.warnings, weak_independence: !!plan.weakIndependence,
+      recommendations: plan.recommendations,
       weak_roles: plan.weakRoles, mitigations: plan.mitigations, report_badge: plan.reportBadge,
       conductor, claude_command: resolveCommand('claude', cfg, { conductor }),
     },
@@ -274,17 +279,17 @@ function cmdPerms() {
   const only = onlyArg ? onlyArg.slice(7).split(',').filter(Boolean) : null;
   const targets = permsPlan(cfg, only);
   if (args.includes('--apply')) {
-    const applied = permsApply(targets);
-    if (!only) {
+    const { applied, notApplied, allApplied } = permsApply(targets);
+    if (!only && allApplied) {
       cfg.permissions_confirmed = true;
       writeFileSync(resolve(moduleDir, 'project.json'), JSON.stringify(cfg, null, 2) + '\n');
     }
-    out({ ok: true, applied });
+    out({ ok: true, applied, notApplied, permissions_confirmed: cfg.permissions_confirmed });
   }
   out({
     ok: true,
     targets: targets.map(({ current, proposalAllow, proposalDeny, ...t }) => t),
-    hint: 'Review addAllow/addDeny, then run again with --apply (backups are created).',
+    hint: 'Review addAllow/addDeny, settingsDiff, relativeRules and dockerWarning, then run again with --apply (backups are created). Relative rules are never changed by the module: fix them by hand.',
   });
 }
 
@@ -385,7 +390,7 @@ const commands = {
   install: cmdInstall,
 };
 
-if (!commands[cmd]) {
+if (!commands[cmd] || !SUBCOMMANDS.includes(cmd)) {
   out({ ok: false, errors: [`usage: ${Object.keys(commands).join(' | ')}`] }, 2);
 }
 commands[cmd]();

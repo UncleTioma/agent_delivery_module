@@ -11,12 +11,13 @@ Usage: `/deliver <request>` (new task), `/deliver resume <ID>`, `/deliver status
 
 ## Setup
 
-0. **First-run checks** (run `config` on every entry to verify confirmation signatures; skip confirmation prompts once their flags are valid in `project.json`):
+0. **First-run checks** (run `config` on every entry to verify confirmation signatures; skip role confirmation once its flag is valid in `project.json`; check permission differences on every entry):
    - `project.json` missing: run `node .agents/delivery/delivery.mjs install` (creates the skill entry points and a draft config), then continue.
    - Run `node .agents/delivery/delivery.mjs config`. A structural error: stop and report. `configured: false`: run role `init` (`.agents/delivery/roles/init.md`) yourself in this session; it asks the user the open questions in one batch and finishes the config.
    - `tools_enabled` optionally limits the tools to a non-empty list of `claude`, `codex`, `antigravity` (`gemini` is an alias). When absent, use every detected usable tool. Run `node .agents/delivery/delivery.mjs doctor`. Report `problems` and stop if any are present: an enabled tool is unavailable, an entry point is missing, no AI tool is usable, or Docker is needed but unreachable. Run `install` to restore missing skill entry points, then retry.
    - If `roles_confirmed` is not true, show `proposal.roles`, `changes`, `warnings`, `weak_roles` and `mitigations`, and ask once; on yes run `doctor --apply`, even when `changes` is empty. This saves `roles_signature`. If `config` returned `roles_reset: true`, the tool set or role map changed (or this is a legacy config without a signature): repeat this confirmation and then the permissions check. No separate confirmation for weak independence is needed.
-   - `node .agents/delivery/delivery.mjs perms`. If `addAllow`/`addDeny` is non-empty and `permissions_confirmed` is not true, show a short summary per file, ask once, and on yes run `perms --apply`. Never edit tool settings by any other way.
+   - `proposal.recommendations` lists roles whose tool differs from the module defaults (non-blocking advice, never applied by `doctor --apply`). On every start, whatever `roles_confirmed` is, show each recommendation to the user as one line (role, current tool, recommended tool, see README). Do not ask, do not wait for an answer, do not stop the task.
+   - `node .agents/delivery/delivery.mjs perms`. Ask once, even when `permissions_confirmed` is already true (for example after a module upgrade), if a target proposes rules or settings that are not in its file yet: non-empty `addAllow`/`addDeny`, or non-empty `settingsDiff` while `relativeRules` is empty. Show a short summary per file (rules to add, current and proposed settings, `dockerWarning`); on yes run `perms --apply`. If a target lists `relativeRules` (relative file rules in the global agy settings: while they exist the agy sandbox runs no command, so `perms --apply` adds this project's absolute rules but does not enable the sandbox), show the list with `relativeRulesNote` in one message: make each rule absolute for its own project or delete it by hand. Do not stop the task because of it. Never change tool settings any other way than `perms --apply`.
    - Git: not a repository -> offer `git init`. Uncommitted changes -> offer: commit them as a separate commit, stash them, or stop (never discard).
 1. Read `.agents/delivery/project.json` and the file named in `instructions_file`. Human-facing text (questions, report) uses `language`.
 2. Run `node .agents/delivery/delivery.mjs config`. Stop if it fails.
@@ -45,6 +46,7 @@ For each role listed in `proposal.weak_roles` (or `config.independence.weakRoles
 After every role:
 - For `codex`, `antigravity` and headless `claude -p` run `node .agents/delivery/delivery.mjs check-output <log>`. Exit code 0 of these tools proves nothing: they silently skip actions that need a permission they do not have. On failure show the reasons, fix the permission (`perms`, with the user's approval) and rerun the role.
 - The expected artifact must exist and be valid. JSON artifacts: `node .agents/delivery/delivery.mjs validate <schema> <file>`.
+- Commit after every role that changed repository files outside the task directory, regardless of its tool (claude, codex or antigravity): `qa_design` (the tests, also after a `tests.patch`), `dev` on every iteration and `bootstrap` in Track G. Roles never commit: codex and the agy sandbox cannot write to `.git/`. The commit message after `dev` names the AC ids that dev listed in `08-dev-log.md`.
 - If the tool could not write outside its sandbox, take its final message and save it as the artifact yourself.
 - Invalid or missing artifact: retry once with the error text appended, then stop and report to the user.
 - Append to `history` in `state.json` (stage, tool, status) and update `stage`.
@@ -56,16 +58,16 @@ After every role:
 3. **triage** - role `teamlead`, mode `triage` -> `04-triage.json`. If `sufficient` is false: send missing items back to `ba` (mode `revise`) up to `max_back_to_ba` times, otherwise ask the user (H1).
 4. **workspace** - requires a clean git state (handled in Setup). `isolation: branch` -> `git switch -c <branch_prefix><ID>-<slug>` from `base_branch`; `isolation: worktree` -> `git worktree add`. Record `branch` in state.
 5. **qa-design** (+ **architect** when `track` is L or `architect_triggers` is non-empty; these may run in parallel) :
-   - `qa_design` role -> `07-test-cases.md` and new tests under `test_dirs`. Then `node .agents/delivery/delivery.mjs guard <task> --tests-only` (nothing outside `test_dirs` may have changed), `node .agents/delivery/delivery.mjs lock-tests <task>` and commit the tests.
+   - `qa_design` role -> `07-test-cases.md` and new tests under `test_dirs`. If the role could not write to `test_dirs` (codex sandbox, `.agents/` or `.git/`), it leaves `tests.patch` in the task directory: apply it with `git apply <task>/tests.patch`. Then `node .agents/delivery/delivery.mjs guard <task> --tests-only` (nothing outside `test_dirs` may have changed) and `node .agents/delivery/delivery.mjs lock-tests <task>`. After a tests patch run the new tests once yourself: they must fail because the behavior is missing; if they fail for another reason (syntax, setup, fixtures), send the task back to `qa_design` once with the output, then stop. Commit the tests.
    - `architect` role -> `05-adr.md`. Track L: **H2**, the user confirms the decision before continuing.
 6. **plan** - role `teamlead`, mode `plan` -> `06-plan.md`. If `04-triage.json` lists `needs_human_approval` items: **H3**, show them and wait for approval.
 7. **loop** (iteration 1..`max_iterations`):
-   1. `dev` role (iteration 1: plan; later: only `blocker` and `major` findings from `09-review.json` and failing criteria from `10-qa.json`) -> code, `08-dev-log.md`; commit.
+   1. `dev` role (iteration 1: plan; later: only `blocker` and `major` findings from `09-review.json` and failing criteria from `10-qa.json`) -> code and `08-dev-log.md`. If dev returned `implementation.patch`, apply it (see Sandbox limits). Commit (see After every role).
    2. `node .agents/delivery/delivery.mjs guard <task>`. Violations (forbidden paths, locked tests changed) -> back to dev once, then stop.
    3. `review` role -> `09-review.json`. Use a reviewer tool different from dev whenever available; otherwise apply all weak independence mitigations above. Apply the same rule to `qa_design` and `qa_run`.
    4. `qa_run` role -> `10-qa.json`.
    5. Exit the loop when there are no `blocker` findings and every criterion passes. Out of iterations: stop and give the user the open findings.
-8. **report** - role `report` -> `11-report.md`. If `publish` is true, push the branch and open a draft merge request using the report as description; otherwise print the branch name and stop. Never merge, never push to `base_branch`.
+8. **report** - first write `<task>/independence.json` for the report: `weakRoles` and `reportBadge` from `independence` in the `config` output, `mitigations_applied` (per role, the weak independence mitigations that actually ran) and `mitigations_skipped` (per role, with the reason, for example no `{model}` placeholder). Write it even when `weakRoles` is empty. Then role `report` -> `11-report.md`. If `publish` is true, push the branch and open a draft merge request using the report as description; otherwise print the branch name and stop. Never merge, never push to `base_branch`.
 9. **H4 acceptance** - show the user the report summary. Accepted -> stage `done`. Remarks -> save as `12-po-remarks.md`, iteration counter continues from the loop with remarks as findings, at most `max_po_rework` times.
 
 ## Track G (new project)
@@ -74,13 +76,14 @@ When `node .agents/delivery/delivery.mjs detect` reports `empty: true` (no manif
 
 1. `ba` questions and requirements as usual; the questions also cover the product context (users, platform, constraints, preferred stack if any).
 2. `architect` role -> `05-adr.md` choosing the stack and structure (2-3 options). **H2 is mandatory.**
-3. Workspace (`git init` if needed, branch), then role `bootstrap` (tool: `roles.dev`) -> skeleton, one green example test, `AGENTS.md`; commit.
-4. The bootstrap role updates `project.json` itself (stack, directories, test commands). Run `config`, then continue with `triage` and the usual stages for the actual task.
+3. Workspace (`git init` if needed, branch), then role `bootstrap` (tool: `roles.dev`) -> skeleton, one green example test, `AGENTS.md` and `bootstrap-config.json` in the task directory; commit the skeleton.
+4. Write the values from `<task>/bootstrap-config.json` (`profile`, `app_dir`, `code_dirs`, `test_dirs`, `test.*`) into `project.json` and run `config`; then run `perms` again (new `test_dirs`) and continue with `triage` and the usual stages for the actual task.
 
-## Codex sandbox limits
+## Sandbox limits (codex, antigravity)
 
-- Codex in `workspace-write` cannot write to `.agents/` or `.git/`, so it cannot commit. After any role run by codex, the conductor makes the commit.
-- If codex cannot write to the target directories, the role returns `implementation.patch` in the task directory. The conductor applies it (`git apply`), runs `node .agents/delivery/delivery.mjs selftest` and `guard`, then commits.
+- Codex in `workspace-write` and antigravity in the agy sandbox cannot write to `.agents/` or `.git/`, so roles never commit; the conductor commits (see After every role).
+- If dev cannot write to the target directories (for example `code_dirs` under `.agents/` with a confirmed map that keeps dev on codex), the role returns `implementation.patch` in the task directory. The conductor applies it (`git apply`), runs the tests from the `test` section and `guard`, then commits.
+- The same for `qa_design` and `test_dirs`: `tests.patch` (stage 5).
 - Run `node .agents/delivery/delivery.mjs check-output <log>` on codex logs: access denied, index.lock and read-only mean a write failure, not success.
 
 ## Hard rules
