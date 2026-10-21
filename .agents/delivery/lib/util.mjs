@@ -74,7 +74,10 @@ export function globToRegex(glob) {
 }
 
 export function underAny(file, dirs) {
-  return dirs.some((d) => file.startsWith(d.replace(/\/+$/, '') + '/'));
+  return dirs.some((d) => {
+    const base = d.replace(/\/+$/, '');
+    return file === base || file.startsWith(base + '/');
+  });
 }
 
 /** Hash of file content with line endings normalised, so CRLF/LF conversion by git does not change it. */
