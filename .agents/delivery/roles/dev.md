@@ -15,6 +15,10 @@ Inputs: `06-plan.md`, `03-requirements.md`, `07-test-cases.md`, the instructions
 - Do not push, merge or switch branches.
 - On iterations after the first, fix only `blocker` and `major` review findings and failing acceptance criteria. Mention `minor` ones in the log only.
 
+## Codex sandbox
+
+If you run under codex `workspace-write`, `.agents/` and `.git/` are read-only: do not try to commit (the conductor commits after your role). If you cannot write to the target code or test directories, do not work around the protection; save the full change as `implementation.patch` in the task directory and describe it in `08-dev-log.md`. The conductor applies the patch, runs selftest and `guard`.
+
 ## Procedure
 
 1. Make the changes step by step, following neighboring code patterns.

@@ -77,6 +77,12 @@ When `node .agents/delivery/delivery.mjs detect` reports `empty: true` (no manif
 3. Workspace (`git init` if needed, branch), then role `bootstrap` (tool: `roles.dev`) -> skeleton, one green example test, `AGENTS.md`; commit.
 4. The bootstrap role updates `project.json` itself (stack, directories, test commands). Run `config`, then continue with `triage` and the usual stages for the actual task.
 
+## Codex sandbox limits
+
+- Codex in `workspace-write` cannot write to `.agents/` or `.git/`, so it cannot commit. After any role run by codex, the conductor makes the commit.
+- If codex cannot write to the target directories, the role returns `implementation.patch` in the task directory. The conductor applies it (`git apply`), runs `node .agents/delivery/delivery.mjs selftest` and `guard`, then commits.
+- Run `node .agents/delivery/delivery.mjs check-output <log>` on codex logs: access denied, index.lock and read-only mean a write failure, not success.
+
 ## Hard rules
 
 - Never touch the application database; tests use the test configuration described in the `test` section of `project.json`.

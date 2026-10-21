@@ -125,6 +125,10 @@ Claude Code читає `.claude/skills/deliver/SKILL.md`, Codex і Gemini — `.
 
 Пісочниця `workspace-write` не дає доступу до Docker. Розробник перевіряє синтаксис і локальні тести, а контейнерний прогін виконує QA-крок. Якщо оболонка не бачить щойно встановлений `codex`, перезапустіть її (`doctor` пробує оновити PATH на Windows).
 
+### Обмеження sandbox codex
+
+У `workspace-write` codex не може писати в `.agents/` та `.git/` (перевірено експериментом; `writable_roots` це не знімає), отже не може й комітити. `.claude/` та решта каталогів пишуться. `doctor` видає попередження `protected_paths`, якщо `code_dirs` (для dev) або `test_dirs` (для qa_design) лежать у `.agents/` чи `.git/`, а роль призначена на codex, і `proposeRoles` обирає для неї інший інструмент. Коли іншого немає, діє протокол: codex не коммітить, комміт виконує диригент; якщо codex не може писати в цільові каталоги, він віддає `implementation.patch`, а диригент застосовує його (`git apply`), запускає selftest і `guard`. `check-output` розпізнає в лозі codex відмови запису (access denied, index.lock, read-only).
+
 ### Режим `branch` у проєктах із Docker
 
 Якщо Docker монтує код з основної теки, тести в окремому worktree не побачать змін. Режим `branch` перемикає гілку в основній теці, тому одночасно виконується одна задача.

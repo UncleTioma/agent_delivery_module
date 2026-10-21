@@ -1,5 +1,5 @@
 // Environment checks (doctor), role remapping and permission proposals (perms).
-import { existsSync, readFileSync, writeFileSync, copyFileSync, mkdirSync } from 'node:fs';
+import { existsSync, statSync, readFileSync, writeFileSync, copyFileSync, mkdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -97,7 +97,7 @@ const FALLBACK = {
 };
 
 /** Propose all roles using the enabled, usable tools, separating review and QA from dev. */
-export function proposeRoles(preferred, tools, toolsEnabled) {
+export function proposeRoles(preferred, tools, toolsEnabled, dirs = {}) {
   const enabled = normalizeTools(Array.isArray(toolsEnabled) ? toolsEnabled : TOOLS);
   const problems = enabled.unknown.map((t) => `tools_enabled: невідомий інструмент '${t}'`);
   if (Array.isArray(toolsEnabled) && !toolsEnabled.length) problems.push('tools_enabled порожній');
@@ -123,9 +123,24 @@ export function proposeRoles(preferred, tools, toolsEnabled) {
     roles[role] = pick;
     changes.push({ role, from: want, to: pick });
   }
+  const testProt = protectedDirs(dirs.test_dirs);
+  const protectedRole = { dev: ['code_dirs', protectedDirs(dirs.code_dirs)], qa_design: ['test_dirs', testProt] };
+  for (const [role, [key, prot]] of Object.entries(protectedRole)) {
+    if (roles[role] !== 'codex' || !prot.length) continue;
+    const other = FALLBACK[role].find((t) => available.includes(t) && t !== 'codex' && (role === 'dev' || t !== roles.dev))
+      ?? FALLBACK[role].find((t) => available.includes(t) && t !== 'codex');
+    if (other) {
+      changes.push({ role, from: 'codex', to: other });
+      roles[role] = other;
+      warnings.push(`protected_paths: ${key} (${prot.join(', ')}) лежать у каталозі, закритому для запису з sandbox codex; роль ${role} переведено з codex на ${other}`);
+    } else {
+      warnings.push(`protected_paths: ${key} (${prot.join(', ')}) закриті для запису з sandbox codex (.agents/.git), а іншого інструмента немає; роль ${role} лишається на codex: протокол передачі патча — codex віддає implementation.patch, диригент застосовує його, запускає selftest і guard та сам комітить`);
+    }
+  }
   for (const role of ['review', 'qa_design', 'qa_run']) {
     if (roles[role] !== roles.dev) continue;
-    const other = FALLBACK[role].find((t) => available.includes(t) && t !== roles.dev);
+    const other = FALLBACK[role].find((t) => available.includes(t) && t !== roles.dev
+      && !(role === 'qa_design' && testProt.length && t === 'codex'));
     if (other) {
       changes.push({ role, from: roles[role], to: other });
       roles[role] = other;
@@ -134,6 +149,11 @@ export function proposeRoles(preferred, tools, toolsEnabled) {
   const independence = evaluateIndependence(roles);
   if (independence.weakIndependence) warnings.push(independence.reportBadge);
   return { available, roles, changes, warnings, problems, ...independence };
+}
+
+/** Entries of a directory list that codex cannot write in workspace-write mode (.agents, .git). */
+function protectedDirs(list) {
+  return (Array.isArray(list) ? list : []).filter((d) => /^(\.\/)?\.(agents|git)(\/|$)/.test(d));
 }
 
 export function evaluateIndependence(roles) {
@@ -205,14 +225,25 @@ function escapeRegex(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/-/g, '\\-');
 }
 
+const SAFE_SUBCOMMANDS = ['validate', 'guard', 'check-output', 'detect', 'selftest'];
+
+/** A path entry naming a single file: no trailing slash, not an existing directory, has an extension. */
+function isFileEntry(d) {
+  if (d.endsWith('/')) return false;
+  const abs = resolve(root, d);
+  if (existsSync(abs)) return !statSync(abs).isDirectory();
+  return /[^/]\.[^/.]+$/.test(d);
+}
+
 function agyRule(prefix, win) {
   return win ? `command(regex:${escapeRegex(prefix)}( .*)?)` : `command(${prefix})`;
 }
 
-export function proposePermissions(cfg, roles = cfg.roles) {
+export function proposePermissions(cfg, roles = cfg.roles, { conductor = null } = {}) {
   roles = Object.fromEntries(Object.entries(roles ?? {}).map(([role, tool]) => [role, canonicalTool(tool)]));
   const used = new Set(Object.values(roles));
   const win = WIN;
+  const claudeConductor = canonicalTool(conductor) === 'claude';
   const claudeAllow = [
     'Bash(node .agents/delivery/delivery.mjs:*)',
     ...(used.has('codex') ? ['Bash(codex exec:*)'] : []),
@@ -227,12 +258,14 @@ export function proposePermissions(cfg, roles = cfg.roles) {
   const secrets = (cfg.forbidden_paths ?? [])
     .map((p) => p.replace(/^\*\*\//, ''))
     .filter((p) => !/[*?]/.test(p));
-  const testDirs = (cfg.test_dirs ?? []).map((d) => d.replace(/\/*$/, '/'));
-  const codeDirs = (cfg.code_dirs ?? []).map((d) => d.replace(/\/*$/, '/'));
+  const dirRule = (d) => (isFileEntry(d) ? d : d.replace(/\/*$/, '/'));
+  const testDirs = (cfg.test_dirs ?? []).map(dirRule);
+  const codeDirs = (cfg.code_dirs ?? []).map(dirRule);
   const agyAllow = [
     ...[...readCmds, ...testCommandPrefixes(cfg), ...(cfg.test?.commands?.lint ? [firstWords(cfg.test.commands.lint, 2)] : [])]
       .map((p) => agyRule(p, win)),
     ...shellRead.map((p) => agyRule(p, win)),
+    ...SAFE_SUBCOMMANDS.map((sub) => agyRule(`node .agents/delivery/delivery.mjs ${sub}`, win)),
     'read_file(*)',
     ...(roles.qa_design === 'antigravity' || roles.dev === 'antigravity' ? testDirs.map((d) => `write_file(${d})`) : []),
     ...(roles.dev === 'antigravity' ? codeDirs.map((d) => `write_file(${d})`) : []),
@@ -246,7 +279,7 @@ export function proposePermissions(cfg, roles = cfg.roles) {
     ...secrets.flatMap((p) => [`read_file(${p})`, `write_file(${p})`]),
   ];
   const proposal = {};
-  if (used.has('claude')) proposal.claude = { file: resolve(root, '.claude/settings.local.json'), allow: [...new Set(claudeAllow)], deny: [] };
+  if (used.has('claude') || claudeConductor) proposal.claude = { file: resolve(root, '.claude/settings.local.json'), allow: [...new Set(claudeAllow)], deny: [] };
   if (used.has('antigravity')) proposal.antigravity = {
     file: resolve(homedir(), '.gemini/antigravity-cli/settings.json'), allow: [...new Set(agyAllow)], deny: [...new Set(agyDeny)],
     note: win ? 'Windows: regex-form rules (plain command(prefix) rules did not match on agy 1.4.4).' : 'Non-Windows: plain command(prefix) rules; verify with a probe run, the regex form may be needed.',
@@ -259,7 +292,7 @@ function mergeList(a = [], b = []) {
 }
 
 export function permsPlan(cfg, only) {
-  const proposal = proposePermissions(cfg);
+  const proposal = proposePermissions(cfg, cfg.roles, { conductor: detectConductor(cfg) });
   const targets = [];
   for (const [tool, p] of Object.entries(proposal)) {
     if (only && !only.includes(tool)) continue;
@@ -306,6 +339,7 @@ export function checkToolOutput(text) {
   const denied = text.match(/"denied_actions"\s*:\s*\[([^\]]+)\]/);
   if (denied) reasons.push(`denied_actions: ${denied[1].trim().slice(0, 200)}`);
   if (/"response"\s*:\s*""/.test(text)) reasons.push('empty response');
+  if (/access (is )?denied|index\.lock|read-only|EROFS/i.test(text)) reasons.push('write failure: the tool could not write to the repository (sandbox protects .agents and .git: access denied, index.lock or read-only); use the implementation.patch protocol and let the conductor commit');
   if (/command not found|is not recognized as the name of a cmdlet/i.test(text)) reasons.push('a command used by the tool is not available');
   return { ok: reasons.length === 0, reasons };
 }

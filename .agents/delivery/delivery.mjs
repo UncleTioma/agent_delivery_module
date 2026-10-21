@@ -27,12 +27,14 @@ import {
 
 const [cmd, ...args] = process.argv.slice(2);
 
-function enforceRolesSignature(cfg) {
-  if (cfg.roles_confirmed !== true || cfg.roles_signature === rolesSignature(cfg)) return false;
+/** Reset stale confirmations in memory; returns the reset keys (nothing is written here). */
+function staleConfirmations(cfg) {
+  if (cfg.roles_confirmed !== true || cfg.roles_signature === rolesSignature(cfg)) return [];
+  const reset = ['roles_confirmed'];
+  if (cfg.permissions_confirmed !== false) reset.push('permissions_confirmed');
   cfg.roles_confirmed = false;
   cfg.permissions_confirmed = false;
-  writeFileSync(resolve(moduleDir, 'project.json'), JSON.stringify(cfg, null, 2) + '\n');
-  return true;
+  return reset;
 }
 
 function cmdConfig() {
@@ -41,7 +43,7 @@ function cmdConfig() {
   const roles = cfg.roles ?? {};
   for (const r of ['ba', 'teamlead', 'architect', 'qa_design', 'dev', 'review', 'qa_run', 'report']) {
     if (!roles[r]) errors.push(`roles.${r} not set`);
-    else if (!cfg.commands?.[roles[r]]) errors.push(`roles.${r} uses tool '${roles[r]}' without commands entry`);
+    else if (!cfg.commands?.[roles[r] === 'gemini' ? 'antigravity' : roles[r]]) errors.push(`roles.${r} uses tool '${roles[r]}' without commands entry`);
   }
   if ('tools_enabled' in cfg) {
     if (!Array.isArray(cfg.tools_enabled) || !cfg.tools_enabled.length) {
@@ -65,10 +67,12 @@ function cmdConfig() {
     if (!cfg.language) errors.push('language not set');
     if (!skill && !cfg.test?.commands?.file) errors.push('no way to run a single test file: set test.commands.file or test.skill');
   }
-  const rolesReset = enforceRolesSignature(cfg);
+  const reset = errors.length ? [] : staleConfirmations(cfg);
+  if (reset.length) writeFileSync(resolve(moduleDir, 'project.json'), JSON.stringify(cfg, null, 2) + '\n');
   out({
     ok: errors.length === 0, errors, configured: cfg.configured === true, unresolved: cfg.unresolved ?? [],
-    independence, warnings: independence.weakIndependence ? [independence.reportBadge] : [], roles_reset: rolesReset,
+    independence, warnings: independence.weakIndependence ? [independence.reportBadge] : [],
+    reset, roles_reset: reset.length > 0,
   }, errors.length ? 1 : 0);
 }
 
@@ -232,7 +236,7 @@ function cmdDoctor() {
   const cfg = loadConfig();
   const tools = inspectTools({ probe: args.includes('--probe') });
   const basics = inspectBasics(cfg);
-  const plan = proposeRoles(cfg.roles ?? {}, tools, cfg.tools_enabled);
+  const plan = proposeRoles(cfg.roles ?? {}, tools, cfg.tools_enabled, { code_dirs: cfg.code_dirs, test_dirs: cfg.test_dirs });
   const problems = [...plan.problems];
   if ('tools_enabled' in cfg && !Array.isArray(cfg.tools_enabled)) {
     problems.push('tools_enabled має бути непорожнім масивом інструментів');
