@@ -83,3 +83,4 @@ git commit -m "feat(delivery): support tool subsets and independence (AC-1 throu
 - R-4: `evaluateIndependence` now compares `canonicalTool()` names (gemini == antigravity).
 - R-5: `checkToolOutput` write-failure detection narrowed to error-shaped text (EROFS, "read-only file system", "unable/cannot to create ... index.lock", "Access is denied", "error/fatal/failed ... access denied"). A log containing the sentence "checkToolOutput matches bare read-only anywhere in the log text" now passes check-output.
 - Selftest: total 104, failed: []. lib/selftest.mjs and tests.lock.json untouched.
+- R-5 follow-up: checkToolOutput skips the write-failure scan for JSON-envelope (agy) output, where the response may quote error words; plain-text (codex) logs are still scanned. review-2.log and qa-design-2.log now pass; selftest 104, failed [].

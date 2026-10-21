@@ -333,6 +333,13 @@ export function permsApply(targets) {
 
 const WRITE_FAILURE_RE = /\bEROFS\b|read-only file system|(?:unable|cannot|can't|failed) to create[^\n]{0,200}index\.lock|\bAccess is denied\b|\b(?:error|fatal|failed)\b[^\n]{0,60}access denied/i;
 
+/** agy-style output: first non-empty line is a JSON object with a "response" key (response text may quote error words as data). */
+function isJsonEnvelope(text) {
+  const line = text.split('
+').find((l) => l.trim());
+  try { const o = line && JSON.parse(line); return !!o && typeof o === 'object' && 'response' in o; } catch { return false; }
+}
+
 /** Detect silent failures of non-interactive tools: exit code 0 but nothing done. */
 export function checkToolOutput(text) {
   const reasons = [];
@@ -341,7 +348,7 @@ export function checkToolOutput(text) {
   const denied = text.match(/"denied_actions"\s*:\s*\[([^\]]+)\]/);
   if (denied) reasons.push(`denied_actions: ${denied[1].trim().slice(0, 200)}`);
   if (/"response"\s*:\s*""/.test(text)) reasons.push('empty response');
-  if (WRITE_FAILURE_RE.test(text)) reasons.push('write failure: the tool could not write to the repository (sandbox protects .agents and .git: access denied, index.lock or read-only); use the implementation.patch protocol and let the conductor commit');
+  if (!isJsonEnvelope(text) && WRITE_FAILURE_RE.test(text)) reasons.push('write failure: the tool could not write to the repository (sandbox protects .agents and .git: access denied, index.lock or read-only); use the implementation.patch protocol and let the conductor commit');
   if (/command not found|is not recognized as the name of a cmdlet/i.test(text)) reasons.push('a command used by the tool is not available');
   return { ok: reasons.length === 0, reasons };
 }
