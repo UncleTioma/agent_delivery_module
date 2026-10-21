@@ -63,10 +63,10 @@
   "roles": {
     "ba": "claude",
     "teamlead": "claude",
-    "architect": "claude",
+    "architect": "antigravity",
     "qa_design": "antigravity",
     "dev": "codex",
-    "review": "claude",
+    "review": "antigravity",
     "qa_run": "antigravity",
     "report": "claude"
   },
@@ -85,5 +85,6 @@
   "publish": false,
   "roles_confirmed": true,
   "permissions_confirmed": true,
-  "unresolved": []
+  "unresolved": [],
+  "roles_signature": "24b8067859a976958c11e3614481689959751aa3"
 }
