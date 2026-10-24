@@ -18,5 +18,6 @@ Inputs: `03-requirements.md`, `.agents/delivery/project.json`, relevant code loc
 3. **Risks.** Concrete regressions this change could cause, based on callers you found.
 4. **Human approval.** List in `needs_human_approval` every item from `project.json` `human_approval` that this task will need (migration, rbac, new_dependency, data_deletion).
 5. `estimate_files`: rough number of files to change.
+6. **Design.** Set `needs_design` to `true` whenever the task adds or changes anything the user sees or touches: a screen, window, widget, dialog, form, menu, notification, icon, layout, text shown to the user, or visual behavior (animation, theme, size). It does not depend on the track: a one-file `S` task that changes how something looks still needs a mockup. Set `false` only for work with no visible result (backend logic, refactors, build, tests, docs). When unsure, choose `true`.
 
 Keep the JSON only; no prose outside it.

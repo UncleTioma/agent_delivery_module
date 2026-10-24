@@ -1,17 +1,17 @@
-# Вимоги: <назва>
+# Requirements: <title>
 
-## Мета
-<дві фрази з погляду Product Owner>
+## Goal
+<two sentences from the Product Owner's point of view>
 
-## Критерії приймання
-- **AC-1.** Дано: ... Коли: ... Тоді: ...
+## Acceptance criteria
+- **AC-1.** Given: ... When: ... Then: ...
 - **AC-2.** ...
 
-## Поза обсягом
+## Out of scope
 - ...
 
-## Припущення (прийняті за замовчуванням)
+## Assumptions (taken as defaults)
 - ...
 
-## Кого стосується
-- ролі / користувачі
+## Who is affected
+- roles / users

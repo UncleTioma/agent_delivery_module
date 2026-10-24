@@ -8,6 +8,7 @@
     "architect_triggers": {"type": "array", "items": {"type": "string"}},
     "risks": {"type": "array", "items": {"type": "string"}},
     "needs_human_approval": {"type": "array", "items": {"type": "string", "enum": ["migration", "rbac", "new_dependency", "data_deletion"]}},
-    "estimate_files": {"type": "integer"}
+    "estimate_files": {"type": "integer"},
+    "needs_design": {"type": "boolean"}
   }
 }

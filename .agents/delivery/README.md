@@ -1,180 +1,196 @@
 # Delivery module
 
-Переносний модуль «від Product Owner до приймання». Працює через скіли в Claude Code, Codex та Antigravity і не залежить від стеку: профілі для Yii2, Laravel, Symfony, Python і Node/TypeScript, загальний профіль для решти, окремий трек для порожнього проєкту.
+A portable "from Product Owner to acceptance" module. It works through skills in Claude Code, Codex and Antigravity and does not depend on the stack: profiles for Yii2, Laravel, Symfony, Python and Node/TypeScript, a generic profile for everything else, and a separate track for an empty project.
 
-Процес, ролі й контрольні точки описані в `docs/ai-delivery-pipeline.md`, план розвитку — в `docs/ai-delivery-universal-plan.md` (у репозиторії Blitz).
+The process, roles and checkpoints are described in `docs/ai-delivery-pipeline.md`, the roadmap in `docs/ai-delivery-universal-plan.md` (in the Blitz repository).
 
-## Швидкий старт у будь-якому проєкті
+## Quick start in any project
 
-1. Скопіюйте теку `.agents/delivery/` у корінь проєкту (без `project.json`, якщо він є від іншого проєкту).
-2. Встановіть. Потрібен Node.js 18+, залежності не потрібні:
+1. Copy the `.agents/delivery/` folder to the project root (without `project.json` if it comes from another project).
+2. Install. Node.js 18+ is required, no dependencies:
 
    ```bash
    node .agents/delivery/delivery.mjs install
    ```
 
-   Команда створює точки входу скілів (`.agents/skills/`, `.claude/skills/`), додає `.work/` у `.gitignore` і готує чернетку `project.json` за визначеним стеком. Claude Code читає скіли тільки з `.claude/skills/`, тому цей крок обов'язковий. Без Node: попросіть агента виконати `INSTALL.md`.
-3. Відкрийте проєкт у Claude Code або Codex (диригент; agy лише виконує ролі) й запустіть скіл `deliver` (або `/deliver`, якщо інструмент підтримує slash-команди):
+   The command creates the skill entry points (`.agents/skills/`, `.claude/skills/`), adds `.work/` to `.gitignore` and drafts `project.json` for the detected stack. Claude Code reads skills only from `.claude/skills/`, so this step is required. Without Node: ask the agent to follow `INSTALL.md`.
+3. Open the project in Claude Code or Codex (the conductor; agy only runs roles) and run the `deliver` skill (or `/deliver` if the tool supports slash commands):
 
    ```text
-   /deliver Опис задачі
+   /deliver Task description
    ```
 
-На першому запуску диригент сам виконує налаштування: ставить одним пакетом питання про те, що не вдалося визначити (мова, команда тестів, Docker, публікація), перевіряє інструменти (`doctor`) і пропонує розподіл ролей, показує дозволи для інструментів і питає один раз. Далі йде звичайний конвеєр.
+On the first run the conductor does the setup itself: it asks, in one batch, about what could not be detected (language, test command, Docker, publishing), checks the tools (`doctor`) and proposes the role map, shows the tool permissions and asks once. Then the normal pipeline runs.
 
-Інші команди: `/deliver resume <ID>`, `/deliver status`. Окремі ролі: `/deliver-review` та інші.
+Other commands: `/deliver resume <ID>`, `/deliver status`. Single roles: `/deliver-review` and others.
 
-## Перший прогін у новому проєкті (чекліст)
+## First run in a new project (checklist)
 
-1. З цього репозиторію: `node .agents/delivery/delivery.mjs export <тека нового проєкту>` (або скопіюйте `.agents/delivery/` вручну).
-2. У новому проєкті: `node .agents/delivery/delivery.mjs install`, потім `node .agents/delivery/delivery.mjs selftest` (має бути `ok: true`).
-3. Закомітьте `.agents/` і `.claude/skills/` (якщо `.gitignore` ігнорує `.agents/*`, додайте `!.agents/delivery/` і `!.agents/skills/`).
-4. Відкрийте проєкт у Claude Code або Codex як диригенті й дайте найменшу реальну задачу: `/deliver ...`.
-5. Якщо крок `agy` або `codex` нічого не повернув, дивіться розділ «Відомі особливості середовища». Запишіть, що саме спрацювало не так, і виправте відповідну роль або профіль.
+1. From this repository: `node .agents/delivery/delivery.mjs export <new project folder>` (or copy `.agents/delivery/` by hand).
+2. In the new project: `node .agents/delivery/delivery.mjs install`, then `node .agents/delivery/delivery.mjs selftest` (must be `ok: true`).
+3. Commit `.agents/` and `.claude/skills/` (if `.gitignore` ignores `.agents/*`, add `!.agents/delivery/` and `!.agents/skills/`).
+4. Open the project in Claude Code or Codex as the conductor and give it the smallest real task: `/deliver ...`.
+5. If an `agy` or `codex` step returned nothing, see "Known environment quirks". Write down what went wrong and fix the role or profile.
 
-## Команди CLI
+## CLI commands
 
 ```bash
-node .agents/delivery/delivery.mjs <команда>
+node .agents/delivery/delivery.mjs <command>
 ```
 
-| Команда | Призначення |
-|---------|-------------|
-| `install [--check]` | Скіли, `.gitignore`, чернетка `project.json` |
-| `detect` | Стек, профіль, команди тестів, Docker, git, інструкції проєкту |
-| `init-config [--force] [--stdout]` | Перегенерувати чернетку `project.json` |
-| `config` | Перевірка `project.json` за схемою, `configured`, список `unresolved` |
-| `doctor [--probe] [--apply]` | Наявність і прапорці `claude`/`codex`/`agy`, Docker; точки входу й пропозиція ролей з оцінкою незалежності |
-| `perms [--apply] [--only=claude,antigravity]` | План дозволів для інструментів, diff, резервні копії |
-| `check-output <лог>` | Виявлення тихих відмов інструмента (код 0, але нічого не зроблено) |
-| `validate <схема> <файл>` | Перевірка JSON-артефактів ролей |
-| `lock-tests <задача>` / `guard <задача> [--tests-only]` | Блокування тестів QA хешем, заборонені шляхи, зміни поза тестами |
-| `export <тека проєкту> [--force]` | Скопіювати чистий модуль (без `project.json`) в інший проєкт |
-| `upgrade <шлях до новішого модуля>` | Оновити модуль у цьому проєкті зі збереженням `project.json`, додати нові ключі, перевстановити скіли |
-| `migrate-config` | Додати відсутні ключі нової версії в `project.json`, нічого не перезаписуючи |
-| `selftest [--verbose]` | Перевірка самого модуля на фікстурах без витрат токенів (134 перевірки) |
+| Command | Purpose |
+|---------|---------|
+| `install [--check]` | Skills, `.gitignore`, draft `project.json` |
+| `detect` | Stack, profile, test commands, Docker, git, project instructions |
+| `init-config [--force] [--stdout]` | Regenerate the draft `project.json` |
+| `config` | Validate `project.json` against the schema, `configured`, the `unresolved` list |
+| `doctor [--probe] [--apply]` | Presence and flags of `claude`/`codex`/`agy`, Docker; entry points and a role proposal with an independence check |
+| `perms [--apply] [--only=claude,antigravity]` | Permission plan for the tools, diff, backups |
+| `check-output <log>` | Detect silent tool failures (exit code 0 but nothing done) |
+| `validate <schema> <file>` | Validate JSON artifacts of the roles |
+| `lock-tests <task>` / `guard <task> [--tests-only]` | Lock QA tests by hash, forbidden paths, changes outside tests |
+| `export <project folder> [--force]` | Copy a clean module (without `project.json`) to another project |
+| `upgrade <path to a newer module>` | Upgrade the module in this project keeping `project.json`, add new keys, reinstall skills |
+| `migrate-config` | Add keys of the new version missing in `project.json` without overwriting anything |
+| `selftest [--verbose]` | Test the module itself on fixtures, spends no tokens (147 checks) |
 
-## Склад
+## Contents
 
 ```
 .agents/delivery/
-  delivery.mjs          CLI (Node 18+, без залежностей), lib/ — допоміжні модулі
+  delivery.mjs          CLI (Node 18+, no dependencies), lib/ holds helper modules
   profiles/             yii2, laravel, symfony, python, node, generic
-  project.json          конфіг проєкту (створюється install, уточнюється на першому запуску)
-  project.schema.json   формат project.json
-  roles/                deliver (диригент), init, bootstrap, ba, triage, architect, plan,
-                        qa-design, dev, review, qa-run, report
-  schemas/ templates/   формати артефактів і шаблони
-  running-tests.md      як ролі будують команди тестів із project.json
-  INSTALL.md            встановлення без Node (інструкція для агента)
+  project.json          project config (created by install, completed on the first run)
+  project.schema.json   format of project.json
+  roles/                deliver (conductor), init, bootstrap, ba, triage, designer, architect,
+                        plan, qa-design, dev, review, qa-run, report
+  schemas/ templates/   artifact formats and templates
+  running-tests.md      how roles build test commands from project.json
+  INSTALL.md            installation without Node (instructions for an agent)
 ```
 
-Скіли `deliver*` у `.agents/skills/` і `.claude/skills/` генерує `install`; вручну їх не редагують. Після оновлення модуля виконайте `install`, перевірка актуальності: `install --check`.
+The `deliver*` skills in `.agents/skills/` and `.claude/skills/` are generated by `install`; do not edit them by hand. After upgrading the module run `install`; check that they are current with `install --check`.
 
-## Налаштування проєкту (`project.json`)
+## Project settings (`project.json`)
 
-Усе проєктне зберігається тут; ролі й схеми однакові для всіх проєктів.
+Everything project-specific lives here; roles and schemas are the same for all projects.
 
-- `profile`, `app_dir`, `code_dirs`, `test_dirs`: де код і тести.
-- `test`: середовище (`docker` або `local`), `exec_prefix`, `commands.file|suite|lint` з плейсхолдерами `{path}`, `{suite}`, `{file}`, `rules` (ізоляція БД, фікстури), `skill` (необов'язковий проєктний скіл тестів, має пріоритет).
-- `forbidden_paths`, `architect_triggers`, `human_approval`, `review_checklist`: з профілю, можна змінювати.
-- `roles` і `commands`: який інструмент виконує роль і як його запускати.
-- `isolation`: `branch` (одна задача за раз) або `worktree`; `publish`: чи пушити гілку й відкривати Draft MR.
+- `profile`, `app_dir`, `code_dirs`, `test_dirs`: where the code and tests are.
+- `test`: environment (`docker` or `local`), `exec_prefix`, `commands.file|suite|lint` with the `{path}`, `{suite}`, `{file}` placeholders, `rules` (DB isolation, fixtures), `skill` (optional project test skill, takes priority).
+- `forbidden_paths`, `architect_triggers`, `human_approval`, `review_checklist`: from the profile, can be changed.
+- `roles` and `commands`: which tool runs a role and how to start it.
+- `isolation`: `branch` (one task at a time) or `worktree`; `publish`: whether to push the branch and open a Draft MR.
+- `language`: the language of questions to the PO, requirements, plans and reports.
 
-## Розподіл ролей за замовчуванням
+## Design stage (mockup for approval)
 
-| Роль | Інструмент | Причина |
-|------|------------|---------|
-| `ba` | `claude` | Діалог із PO та уточнення вимог |
-| `teamlead` | `claude` | Координація, план і рішення з PO |
-| `architect` | `antigravity` | Великий контекст для читання коду й документації |
-| `qa_design` | `antigravity` | Незалежне проєктування перевірок |
-| `dev` | `codex` | Реалізація та виправлення коду |
-| `review` | `antigravity` | Великий контекст для перевірки змін |
-| `qa_run` | `antigravity` | Незалежна перевірка критеріїв приймання |
-| `report` | `claude` | Підсумковий звіт для PO |
+Triage sets `needs_design: true` for every task that adds or changes something the user sees (on any track; when unsure it chooses `true`). Such tasks get a stage `design` between triage and the workspace:
 
-Якщо бажаний інструмент недоступний, `doctor` бере перший доступний із черги ролі:
+1. Role `designer` draws `05a-mockup.html` (one self-contained file in the look of the real product, each element marked with its `AC-n`), `05b-mockup.png` and `05d-design-notes.md` (decisions, questions, `NEW` elements).
+2. The conductor publishes the HTML as a private Artifact and saves the link in `05e-mockup-url.txt` and `state.json` (`mockup_url`). Without an Artifact tool it gives the file paths instead.
+3. Checkpoint **HD**: the product owner approves or leaves remarks (`05c-design-remarks.md`). Each round republishes to the same link; at most `limits.max_design_rounds` (default 3).
+4. After approval the mockup is a contract: `qa_design` takes expected texts and states from it, `plan` maps its elements, `dev` implements it and records deviations, `review` checks the diff against it, `qa_run` compares the real screen with `05b-mockup.png`, `report` has a **mockup vs result** block. The mockup is never committed.
+
+`designer` runs on `roles.designer` when set, otherwise on `claude` (best at visual work and the only tool with the Artifact tool). It is not part of the required role map, so existing `project.json` files and confirmations stay valid.
+
+## Default role map
+
+| Role | Tool | Reason |
+|------|------|--------|
+| `ba` | `claude` | Dialogue with the PO and clarifying requirements |
+| `teamlead` | `claude` | Coordination, plan and decisions with the PO |
+| `architect` | `antigravity` | Large context for reading code and documentation |
+| `qa_design` | `antigravity` | Independent test design |
+| `dev` | `codex` | Implementing and fixing code |
+| `review` | `antigravity` | Large context for reviewing changes |
+| `qa_run` | `antigravity` | Independent check of acceptance criteria |
+| `report` | `claude` | Final report for the PO |
+
+If the preferred tool is unavailable, `doctor` takes the first available one from the role's queue:
 
 - `architect`, `review`, `qa_design`, `qa_run`: antigravity → claude → codex.
 - `dev`: codex → claude → antigravity.
 - `ba`, `teamlead`, `report`: claude → antigravity → codex.
 
-Review і QA за можливості відокремлюються від dev. Підстановка відбувається лише на етапі `doctor`; під час задачі після невдалого запуску є один повтор, потім зупинка й повідомлення PO. Ролі ba і report можуть працювати не на Claude, окремого попередження про це немає.
+Review and QA are kept apart from dev when possible. Substitution happens only in `doctor`; during a task a failed run gets one retry, then the pipeline stops and tells the PO. The ba and report roles may run on a tool other than Claude without a separate warning.
 
-Підтверджена мапа (`roles_confirmed: true` і чинний `roles_signature`) має пріоритет над переходом через `protected_paths`: dev на codex у захищених `.agents/` чи `.git/` лишається на codex. Для qa_design це теж діє, коли dev на іншому інструменті; відокремлення QA від dev зберігається. Якщо цільові каталоги закриті для запису, dev віддає `implementation.patch` у каталозі задачі, диригент застосовує його через `git apply`, запускає тести й `guard` та комітить. Для qa_design діє `tests.patch`: диригент застосовує патч, перевіряє `guard <task> --tests-only`, блокує тести (`lock-tests`), один раз запускає нові тести й сам комітить. Автоперехід через захищені каталоги діє лише для непідтвердженої мапи. Недоступний codex підтвердження не втримує — спрацьовує черга.
+A confirmed map (`roles_confirmed: true` and a valid `roles_signature`) takes priority over moving roles away from `protected_paths`: dev on codex in protected `.agents/` or `.git/` stays on codex. The same holds for qa_design when dev is on another tool; QA stays apart from dev. If the target folders cannot be written, dev returns `implementation.patch` in the task directory, and the conductor applies it with `git apply`, runs the tests and `guard` and commits. qa_design uses `tests.patch`: the conductor applies the patch, checks `guard <task> --tests-only`, locks the tests (`lock-tests`), runs the new tests once and commits. The automatic move away from protected folders applies only to an unconfirmed map. Confirmation does not keep an unavailable codex: the queue applies.
 
-`doctor` повертає неблокуючі поради в `proposal.recommendations`: роль, поточний і рекомендований інструмент та посилання на інструкцію нижче. Поради не змінюють мапу, `changes`, `warnings`, `problems`, результат чи код виходу; `doctor --apply` їх не застосовує. Диригент показує кожну одним рядком на кожному старті без питання й зупинки, незалежно від підтвердження мапи. Рекомендації рахуються окремо для кожної ролі: dev → codex може з'явитися лише після того, як review і QA залишили codex. Модуль не радить переводити dev чи qa_design на codex у захищені каталоги, на недоступний інструмент чи з порушенням незалежності; для ролі, яка вже перейшла через недоступність її інструмента, окремої поради немає.
+`doctor` returns non-blocking advice in `proposal.recommendations`: the role, the current and recommended tool and a pointer to the instructions below. Advice does not change the map, `changes`, `warnings`, `problems`, the result or the exit code; `doctor --apply` does not apply it. The conductor shows each item in one line at every start, without asking or stopping, whether or not the map is confirmed. Recommendations are computed per role: dev → codex can appear only after review and QA have left codex. The module does not advise moving dev or qa_design to codex in protected folders, to an unavailable tool or against independence; a role that has already moved because its tool is unavailable gets no separate advice.
 
-### Перехід наявного проєкту на нові дефолти
+### Moving an existing project to the new defaults
 
-Оновлення (`upgrade`, `migrate-config`) зберігає наявні ролі та їхнє підтвердження. Для ручного переходу:
+Upgrading (`upgrade`, `migrate-config`) keeps the existing roles and their confirmation. To move by hand:
 
-1. Запустіть `node .agents/delivery/delivery.mjs doctor` і перегляньте `proposal.recommendations`.
-2. Змініть `roles` у `.agents/delivery/project.json` для потрібних ролей.
-3. Запустіть `node .agents/delivery/delivery.mjs config`: для зміненої мапи він поверне `roles_reset: true`.
-4. Знову запустіть `doctor`, підтвердьте пропозицію й виконайте `doctor --apply`.
-5. Запустіть `perms`, перегляньте правила й налаштування, після підтвердження застосуйте `perms --apply`.
-6. Повторіть `doctor`: наступна рекомендація може з'явитися після попереднього переходу.
+1. Run `node .agents/delivery/delivery.mjs doctor` and review `proposal.recommendations`.
+2. Change `roles` in `.agents/delivery/project.json` for the roles you want.
+3. Run `node .agents/delivery/delivery.mjs config`: for a changed map it returns `roles_reset: true`.
+4. Run `doctor` again, confirm the proposal and run `doctor --apply`.
+5. Run `perms`, review the rules and settings and, once confirmed, apply `perms --apply`.
+6. Run `doctor` again: the next recommendation may appear after the previous move.
 
-## Набір інструментів і незалежність ролей
+## Tool set and role independence
 
-У `project.json` можна обмежити набір, наприклад `"tools_enabled": ["claude", "codex"]`. Допустимі назви: `claude`, `codex`, `antigravity`; `gemini` — синонім `antigravity` (CLI `agy`). Порядок і повтори не впливають на набір. Без `tools_enabled` модуль використовує всі знайдені придатні інструменти. Порожній масив, невідома назва, відсутній інструмент, несумісні прапорці або невдала перевірка авторизації — проблема, яку `doctor` показує до запуску. `doctor --apply` не застосовує неповний набір.
+`project.json` can limit the tool set, for example `"tools_enabled": ["claude", "codex"]`. Valid names: `claude`, `codex`, `antigravity`; `gemini` is an alias of `antigravity` (the `agy` CLI). Order and duplicates do not matter. Without `tools_enabled` the module uses every usable tool it finds. An empty array, an unknown name, a missing tool, unsupported flags or a failed authorization check are problems that `doctor` reports before the run. `doctor --apply` does not apply an incomplete set.
 
-Після зміни набору спочатку перегляньте `doctor`, підтвердьте запропоновану мапу й застосуйте її через `doctor --apply`. `config` відхиляє ручну мапу, де роль посилається на вимкнений інструмент, із назвою ролі та інструмента. Усі 8 ролей покриті навіть одним інструментом. За наявності другого `review`, `qa_design` і `qa_run` відокремлюються від `dev`; придатні бажані призначення решти ролей зберігаються.
+After changing the set, review `doctor` first, confirm the proposed map and apply it with `doctor --apply`. `config` rejects a hand-made map where a role points to a disabled tool, naming the role and the tool. All 8 roles are covered even by a single tool. With a second tool, `review`, `qa_design` and `qa_run` are kept apart from `dev`; usable preferred assignments of the other roles are kept.
 
-| `tools_enabled` | Диригент | Як запускається claude | Де слабка незалежність |
-|-----------------|----------|------------------------|------------------------|
-| `["claude"]` | Claude Code | Новий ізольований subagent для кожної ролі | `review`, `qa_design`, `qa_run` разом із dev |
-| `["codex"]` | Codex | Не запускається | `review`, `qa_design`, `qa_run` разом із dev |
-| `["gemini"]` | Claude Code або Codex (agy лише виконує ролі) | Не запускається | `review`, `qa_design`, `qa_run` разом із dev |
-| `["claude", "codex"]` | Claude Code або Codex | subagent у Claude Code, `claude -p` у Codex | Немає: review і QA відокремлені від dev |
-| `["gemini", "claude"]` | Claude Code або Codex | subagent у Claude Code, `claude -p` у Codex | Немає: review і QA відокремлені від dev |
-| `["gemini", "codex"]` | Codex | Не запускається | Немає: review і QA відокремлені від dev |
-| `["claude", "codex", "gemini"]` | Claude Code або Codex | subagent у Claude Code, `claude -p` у Codex | Немає: review і QA відокремлені від dev |
+| `tools_enabled` | Conductor | How claude runs | Where independence is weak |
+|-----------------|-----------|-----------------|----------------------------|
+| `["claude"]` | Claude Code | A new isolated subagent for each role | `review`, `qa_design`, `qa_run` with dev |
+| `["codex"]` | Codex | Not used | `review`, `qa_design`, `qa_run` with dev |
+| `["gemini"]` | Claude Code or Codex (agy only runs roles) | Not used | `review`, `qa_design`, `qa_run` with dev |
+| `["claude", "codex"]` | Claude Code or Codex | subagent in Claude Code, `claude -p` in Codex | None: review and QA are apart from dev |
+| `["gemini", "claude"]` | Claude Code or Codex | subagent in Claude Code, `claude -p` in Codex | None: review and QA are apart from dev |
+| `["gemini", "codex"]` | Codex | Not used | None: review and QA are apart from dev |
+| `["claude", "codex", "gemini"]` | Claude Code or Codex | subagent in Claude Code, `claude -p` in Codex | None: review and QA are apart from dev |
 
-Claude Code читає `.claude/skills/deliver/SKILL.md`, Codex і Gemini — `.agents/skills/deliver/SKILL.md`; обидва шляхи створює `install`, а відсутність потрібної точки входу виявляє `doctor`. Диригентом лишається агент, не скрипт CLI. Для однозначного вибору задайте `"conductor": "claude"` або `"codex"`. Механізм приймає також `gemini`/`antigravity`, але після `perms --apply` agy диригентом бути не може: заборонені `config`, `doctor`, `perms`, `lock-tests`, `install`, а sandbox закриває запис у `.git/` і `.agents/`. Без override Claude Code визначається через `CLAUDECODE=1` або `CLAUDE_CODE_SESSION_ID`; невідомий диригент використовує headless Claude. `commands.claude` може лишатися `"subagent"`; необов’язковий `commands.claude_headless` замінює `claude -p "{prompt}"` для інших диригентів.
+Claude Code reads `.claude/skills/deliver/SKILL.md`, Codex and Gemini read `.agents/skills/deliver/SKILL.md`; `install` creates both, and `doctor` detects a missing entry point. The conductor is an agent, not the CLI script. To make the choice explicit, set `"conductor": "claude"` or `"codex"`. The mechanism also accepts `gemini`/`antigravity`, but after `perms --apply` agy cannot be the conductor: `config`, `doctor`, `perms`, `lock-tests`, `install` are denied, and the sandbox blocks writes to `.git/` and `.agents/`. Without an override Claude Code is detected by `CLAUDECODE=1` or `CLAUDE_CODE_SESSION_ID`; an unknown conductor uses headless Claude. `commands.claude` may stay `"subagent"`; the optional `commands.claude_headless` replaces `claude -p "{prompt}"` for other conductors.
 
-Коли інструмент dev збігається з `review`, `qa_design` чи `qa_run`, модуль дозволяє запуск і формує **weak independence** з точним переліком ролей. Диригент запускає кожну з них свіжим процесом без контексту dev, перевіряє чеклист і diff, зберігає `lock-tests` та `guard`. Іншу модель задає лише коли команда має плейсхолдер `{model}`; інакше пропускає цей крок без помилки. У Claude Code для кожної Claude-ролі створюється новий ізольований subagent без контексту dev; в інших диригентах — свіжий headless-процес. Акт містить позначку та фактично застосовані пом’якшення; при повній незалежності позначки немає. Окремого підтвердження слабкої незалежності немає — це частина підтвердження мапи ролей.
+When the dev tool is the same as the tool of `review`, `qa_design` or `qa_run`, the module allows the run and reports **weak independence** with the exact list of roles. The conductor starts each of them as a fresh process without dev context, checks the checklist and the diff, keeps `lock-tests` and `guard`. It sets a different model only when the command has a `{model}` placeholder; otherwise it skips this step without error. In Claude Code each Claude role gets a new isolated subagent without dev context; other conductors start a fresh headless process. The report carries the badge and the mitigations actually applied; with full independence there is no badge. There is no separate confirmation of weak independence: it is part of confirming the role map.
 
-`doctor --apply` зберігає `roles_signature` від нормалізованого набору і мапи ролей та встановлює `roles_confirmed: true`. Незмінний підпис зберігає підтвердження. Якщо набір або мапа змінилися, `config` скидає `roles_confirmed` і `permissions_confirmed`, повертає `roles_reset: true`; перед запуском потрібне повторне підтвердження. Для старої конфігурації з `roles_confirmed: true` без підпису це відбувається один раз, до наступного `doctor --apply`.
+`doctor --apply` stores `roles_signature` of the normalized tool set and role map and sets `roles_confirmed: true`. An unchanged signature keeps the confirmation. If the set or the map changed, `config` resets `roles_confirmed` and `permissions_confirmed` and returns `roles_reset: true`; the run then needs a new confirmation. For an old config with `roles_confirmed: true` and no signature this happens once, until the next `doctor --apply`.
 
-`perms` будує записи для інструментів із фактичної мапи ролей (і Claude, якщо він диригент). Дозволи Claude на `codex exec` та `agy -p` додаються лише за наявності відповідних ролей. Antigravity отримує запис у каталоги коду лише як dev, у каталоги тестів — як dev або `qa_design`, а також у `.work/`; усі шляхи абсолютні. Замість списку дозволених команд використовується sandbox; заборони охоплюють небезпечні команди та всі підкоманди `delivery.mjs`, крім `validate`, `guard`, `check-output`, `detect`, `selftest`. Наявні правила не змінюються й не видаляються: `perms --apply` додає потрібні правила з резервною копією. `perms` показує `settingsDiff` (поточне й пропоноване значення), `relativeRules` і попередження Docker. Нові правила або налаштування потребують підтвердження людини навіть при `permissions_confirmed: true`.
+`perms` builds entries for the tools of the actual role map (and for Claude when it is the conductor). Claude permissions for `codex exec` and `agy -p` are added only when such roles exist. Antigravity gets write access to code folders only as dev, to test folders as dev or `qa_design`, and to `.work/`; all paths are absolute. A sandbox replaces the command allowlist; the deny list covers dangerous commands and every `delivery.mjs` subcommand except `validate`, `guard`, `check-output`, `detect`, `selftest`. Existing rules are neither changed nor removed: `perms --apply` adds the needed rules and makes a backup. `perms` shows `settingsDiff` (current and proposed value), `relativeRules` and the Docker warning. New rules or settings need a human confirmation even with `permissions_confirmed: true`.
 
-## Порожній проєкт
+## Empty project
 
-Якщо `detect` повертає `empty: true`, диригент веде задачу треком G: питання про продукт, архітектор вибирає стек (підтвердження обов'язкове), роль `bootstrap` створює каркас із одним зеленим тестом і `AGENTS.md`, далі звичайний конвеєр.
+If `detect` returns `empty: true`, the conductor runs the task on track G: product questions, the architect picks the stack (confirmation required), the `bootstrap` role creates a skeleton with one green test and `AGENTS.md`, then the normal pipeline.
 
-## Відомі особливості середовища
+## Known environment quirks
 
 ### Antigravity CLI (`agy`)
 
-`perms` пропонує режим `toolPermission: "proceed-in-sandbox"` і `enableTerminalSandbox: true` без `command(...)` у списку дозволів. Після підтвердження людини `perms --apply` записує налаштування й абсолютні файлові правила з резервною копією. Перевірено пробою на agy 1.4.4 під Windows: `write_file(D:/dev/proj/.work/)` (літера диска й прямі скісні риски); на інших ОС — `write_file(/home/u/proj/.work/)`. Каталог закінчується `/`, окремий файл — без неї.
+Roles on agy run in the project's own profile: `commands.antigravity` contains `--app_data_dir=antigravity-delivery-<project>`, and agy reads its settings from `~/.gemini/antigravity-delivery-<project>/settings.json`. The module does not change the global file `~/.gemini/antigravity-cli/settings.json` of interactive agy sessions: it keeps the confirmation mode. `install` creates the command with the profile, `migrate-config` (also run by `upgrade`) adds the flag to an old command. Without a profile `config` reports an error and `perms` writes nothing for agy. A new profile takes `model` from the global file (the model chosen for interactive agy), otherwise agy would use its default model; `perms` does not change a model already set in the profile. `agy --help` does not list `--app_data_dir`, but the Antigravity extension for VS Code passes it to agy; verified on agy 1.4.5. Role transcripts are in `~/.gemini/antigravity-delivery-<project>/brain/<conversation_id>/.system_generated/logs/`.
 
-У sandbox команди працюють без списку дозволів, із заборонами небезпечних команд і мутуючих підкоманд модуля. Мережа закрита, запис дозволений лише у `write_file(...)`-шляхи та temp. `.git/` і `.agents/` доступні лише для читання, тож ролі не комітять: це робить диригент. За межами дозволених файлових шляхів headless-запуск може обірватися: код 0, порожня відповідь, `jetski: no output produced ... auto-denied` чи `denied_actions`. Такі відмови виявляє `check-output`.
+For the profile, `perms` proposes `toolPermission: "proceed-in-sandbox"` and `enableTerminalSandbox: true` with no `command(...)` in the allow list. After a human confirms, `perms --apply` writes the settings and absolute file rules and makes a backup. Verified by a probe on agy 1.4.4 on Windows: `write_file(D:/dev/proj/.work/)` (drive letter and forward slashes); on other systems `write_file(/home/u/proj/.work/)`. A folder ends with `/`, a single file does not.
 
-Відносні файлові правила в глобальному файлі ламають sandbox у всіх проєктах: жодна команда не запускається через `sandbox configuration error: readonly <path>: non-absolute file path`. agy при цьому може повертати SUCCESS; `check-output` виявляє цю помилку, якщо її текст є у виводі, зокрема в JSON-відповіді. Сам прапорець `--sandbox` не допоможе, поки лишаються відносні правила; налаштований режим вмикає `perms --apply` через `enableTerminalSandbox`.
+In the sandbox, commands run without an allowlist, with denials of dangerous commands and of the module's mutating subcommands. The network is closed, writes are allowed only to `write_file(...)` paths and temp. `.git/` and `.agents/` are read-only, so roles do not commit: the conductor does. Outside the allowed file paths a headless run may abort: exit code 0, an empty response, `jetski: no output produced ... auto-denied` or `denied_actions`. `check-output` detects these failures.
 
-`perms` перелічує кожне відносне правило (старі `.work/`, `.git/` та шляхи інших проєктів). Зробіть кожне абсолютним для свого проєкту або видаліть вручну. Модуль їх не змінює й не видаляє. Поки вони лишаються, `perms --apply` додає абсолютні правила поточного проєкту, але не вмикає sandbox і не встановлює `permissions_confirmed`; без списку дозволених команд ролі на agy ще не зможуть виконувати команди. Після ручного виправлення повторіть `perms --apply`.
+The agy sandbox on Windows also isolates processes: a command in it sees only its own processes, host processes do not exist for it (verified on agy 1.4.5: `Stop-Process -Id <pid of a host process>` gives "Cannot find a process"). On 2026-10-22 an interactive agy session in VS Code with auto-run and the sandbox off ran `Stop-Process -Name git, bash -Force` and stopped every git and bash on the machine. So `perms` also adds denials of system commands (`SYSTEM_DENY_RULES` in `lib/tools.mjs`) as a second line of defence for commands agy runs outside the sandbox after a human allows it: stopping processes (`Stop-Process`, `taskkill`, `kill`), shutdown and restart, services, scheduled tasks, the registry, `netsh`, `wsl`, elevation (`-Verb RunAs`). A rule of the form `command(regex:.*(?i:...).*)` was verified by a probe on agy 1.4.5: it matches anywhere in the line, after `|`, inside `cmd /c "..."` and `& { ... }`, regardless of case.
 
-Файл `~/.gemini/antigravity-cli/settings.json` і sandbox глобальні: діють у всіх проєктах машини та інтерактивних сесіях agy. Перед увімкненням sandbox оновіть модуль у кожному проєкті, потім запустіть `perms` у кожному з них: старий `perms --apply` знову додає відносні `write_file(.work/)` і `write_file(.git/)`. Наявні дозволи `command(...)` лишаються у файлі; модуль їх не прибирає. У режимі `isolation: worktree` абсолютні правила прив'язані до кореня, де запускали `perms`, тому `perms` і `perms --apply` треба запускати з кореня worktree.
+Relative file rules in the profile file break the sandbox: no command starts because of `sandbox configuration error: readonly <path>: non-absolute file path`. agy may still return SUCCESS; `check-output` detects this error when its text is in the output, including inside the JSON response. The `--sandbox` flag alone does not help while relative rules remain; the configured mode is enabled by `perms --apply` through `enableTerminalSandbox`.
 
-Docker і мережеві команди в sandbox можуть не працювати; QA тоді повертає `blocked`. За `test.env: docker` команда `perms` показує попередження. Правил `unsandboxed(...)` модуль не додає; потрібний запуск поза sandbox налаштовується вручну.
+`perms` lists every relative rule (for example, ones moved by hand from the old global file). Make each one absolute for its project or delete it by hand. The module neither changes nor removes them. While they remain, `perms --apply` adds the absolute rules of the current project but does not enable the sandbox or set `permissions_confirmed`; without a command allowlist, roles on agy cannot run commands yet. After fixing them by hand, run `perms --apply` again.
+
+Each project has its own profile, so the rules of one project do not apply in another, and the sandbox and auto-run do not affect interactive agy sessions. Module versions before 0.5.0 wrote these settings to the global file. After upgrading the module in every project, remove `toolPermission`, `enableTerminalSandbox` and the delivery rules from the global file by hand: the module does not change that file. While some project still has an old module, its `perms --apply` will add its rules there again. In `isolation: worktree` mode the absolute rules are bound to the root where `perms` ran, so run `perms` and `perms --apply` from the worktree root.
+
+Docker and network commands may not work in the sandbox; QA then returns `blocked`. With `test.env: docker`, `perms` shows a warning. The module adds no `unsandboxed(...)` rules; running outside the sandbox is configured by hand.
 
 ### Codex
 
-Пісочниця `workspace-write` не дає доступу до Docker. Розробник перевіряє синтаксис і локальні тести, а контейнерний прогін виконує QA-крок. Якщо оболонка не бачить щойно встановлений `codex`, перезапустіть її (`doctor` пробує оновити PATH на Windows).
+The `workspace-write` sandbox has no access to Docker. The developer checks syntax and local tests, and the container run is done by the QA step. If the shell does not see a freshly installed `codex`, restart it (`doctor` tries to refresh PATH on Windows).
 
-### Обмеження sandbox codex
+### Codex sandbox limits
 
-У `workspace-write` codex не може писати в `.agents/` та `.git/` (перевірено експериментом; `writable_roots` це не знімає), отже не може й комітити. `.claude/` та решта каталогів пишуться. `doctor` видає `protected_paths` для dev чи qa_design на codex у захищених каталогах. Лише за непідтвердженої мапи `proposeRoles` автоматично обирає інший інструмент через ці каталоги; підтверджена мапа зберігає доступний codex за правилами вище. Якщо іншого інструмента немає, теж використовується патч. Dev віддає `implementation.patch`, qa_design — `tests.patch`, диригент застосовує його (`git apply`), виконує відповідні перевірки й комітить. `check-output` розпізнає в лозі codex відмови запису (access denied, index.lock, read-only).
+In `workspace-write` codex cannot write to `.agents/` and `.git/` (verified by an experiment; `writable_roots` does not lift this), so it cannot commit either. `.claude/` and the other folders are writable. `doctor` reports `protected_paths` for dev or qa_design on codex in protected folders. Only for an unconfirmed map does `proposeRoles` pick another tool because of these folders; a confirmed map keeps an available codex by the rules above. If there is no other tool, the patch is used too. Dev returns `implementation.patch`, qa_design returns `tests.patch`, and the conductor applies it (`git apply`), runs the matching checks and commits. `check-output` recognizes write failures in a codex log (access denied, index.lock, read-only).
 
-### Режим `branch` у проєктах із Docker
+### `branch` mode in projects with Docker
 
-Якщо Docker монтує код з основної теки, тести в окремому worktree не побачать змін. Режим `branch` перемикає гілку в основній теці, тому одночасно виконується одна задача.
+If Docker mounts the code from the main folder, tests in a separate worktree do not see the changes. `branch` mode switches the branch in the main folder, so one task runs at a time.
 
-## Обмеження
+## Limitations
 
-- Диригент — модель, а не програма. Жорсткі правила (схеми, заборонені шляхи, незмінність тестів QA, оцінка незалежності ролей, тихі відмови) винесено в `delivery.mjs`.
-- Перевірено на Windows. Прогони на macOS і Linux ще не виконано; розбіжності, найімовірніше, у правилах дозволів `agy`.
-- Автоматичні перевірки покривають CLI та визначення стеку (`selftest`). Повний прогін `/deliver` на порожній теці та на проєктах інших стеків ще не робився.
+- The conductor is a model, not a program. Hard rules (schemas, forbidden paths, immutability of QA tests, role independence, silent failures) live in `delivery.mjs`.
+- Tested on Windows. Runs on macOS and Linux have not been done yet; differences are most likely in the `agy` permission rules.
+- Automated checks cover the CLI and stack detection (`selftest`). A full `/deliver` run on an empty folder and on projects of other stacks has not been done yet.

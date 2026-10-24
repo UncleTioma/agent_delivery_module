@@ -109,12 +109,12 @@ export function proposeRoles(preferred, tools, toolsEnabled, dirs = {}) {
     : dirs.roles_confirmed === true && !!dirs.roles_signature
       && dirs.roles_signature === rolesSignature({ tools_enabled: toolsEnabled, roles: preferred });
   const enabled = normalizeTools(Array.isArray(toolsEnabled) ? toolsEnabled : TOOLS);
-  const problems = enabled.unknown.map((t) => `tools_enabled: невідомий інструмент '${t}'`);
-  if (Array.isArray(toolsEnabled) && !toolsEnabled.length) problems.push('tools_enabled порожній');
+  const problems = enabled.unknown.map((t) => `tools_enabled: unknown tool '${t}'`);
+  if (Array.isArray(toolsEnabled) && !toolsEnabled.length) problems.push('tools_enabled is empty');
   const available = enabled.tools.filter((t) => tools[t]?.found && tools[t]?.flagsOk !== false && tools[t]?.authorized !== false);
   if (Array.isArray(toolsEnabled)) {
     for (const t of enabled.tools) {
-      if (!available.includes(t)) problems.push(`tools_enabled: інструмент '${t}' недоступний (наявність, прапорці або авторизація)`);
+      if (!available.includes(t)) problems.push(`tools_enabled: tool '${t}' is not available (not found, unsupported flags or not authorized)`);
     }
   }
   const changes = [];
@@ -141,8 +141,8 @@ export function proposeRoles(preferred, tools, toolsEnabled, dirs = {}) {
       && (role === 'dev' || roles.dev !== 'codex');
     if (keep) {
       warnings.push(role === 'dev'
-        ? `protected_paths: code_dirs (${prot.join(', ')}) закриті для запису з sandbox codex (.agents/.git); роль dev лишається на codex, бо мапу ролей підтверджено (roles_confirmed і roles_signature). Протокол implementation.patch: codex віддає implementation.patch у каталозі задачі, диригент застосовує його (git apply), запускає тести й guard та сам комітить`
-        : `protected_paths: test_dirs (${prot.join(', ')}) закриті для запису з sandbox codex (.agents/.git); роль qa_design лишається на codex, бо мапу ролей підтверджено. Протокол патча тестів: codex віддає tests.patch у каталозі задачі, диригент застосовує його, перевіряє guard --tests-only, блокує тести (lock-tests), один раз запускає нові тести й сам комітить`);
+        ? `protected_paths: code_dirs (${prot.join(', ')}) are not writable from the codex sandbox (.agents/.git); dev stays on codex because the role map is confirmed (roles_confirmed and roles_signature). implementation.patch protocol: codex returns implementation.patch in the task directory, the conductor applies it (git apply), runs the tests and guard and commits`
+        : `protected_paths: test_dirs (${prot.join(', ')}) are not writable from the codex sandbox (.agents/.git); qa_design stays on codex because the role map is confirmed. Test patch protocol: codex returns tests.patch in the task directory, the conductor applies it, checks guard --tests-only, locks the tests (lock-tests), runs the new tests once and commits`);
       continue;
     }
     const other = FALLBACK[role].find((t) => available.includes(t) && t !== 'codex' && (role === 'dev' || t !== roles.dev))
@@ -150,9 +150,9 @@ export function proposeRoles(preferred, tools, toolsEnabled, dirs = {}) {
     if (other) {
       changes.push({ role, from: 'codex', to: other });
       roles[role] = other;
-      warnings.push(`protected_paths: ${key} (${prot.join(', ')}) лежать у каталозі, закритому для запису з sandbox codex; роль ${role} переведено з codex на ${other}`);
+      warnings.push(`protected_paths: ${key} (${prot.join(', ')}) are in a directory the codex sandbox cannot write; role ${role} moved from codex to ${other}`);
     } else {
-      warnings.push(`protected_paths: ${key} (${prot.join(', ')}) закриті для запису з sandbox codex (.agents/.git), а іншого інструмента немає; роль ${role} лишається на codex: протокол передачі патча — codex віддає implementation.patch, диригент застосовує його, запускає selftest і guard та сам комітить`);
+      warnings.push(`protected_paths: ${key} (${prot.join(', ')}) are not writable from the codex sandbox (.agents/.git) and no other tool is available; role ${role} stays on codex with the patch protocol: codex returns implementation.patch, the conductor applies it, runs selftest and guard and commits`);
     }
   }
   for (const role of ['review', 'qa_design', 'qa_run']) {
@@ -184,7 +184,7 @@ function recommendRoles(preferred, roles, available, dirs) {
     if (target === 'codex' && protectedDirs(dirsForRole).length) continue;
     recommendations.push({
       role, from: current, to: target,
-      message: `${role}: зараз ${current}, рекомендовано ${target} (нові дефолти модуля). doctor --apply цього не застосовує; як перейти вручну — README.md, розділ «Перехід наявного проєкту на нові дефолти».`,
+      message: `${role}: now ${current}, recommended ${target} (new module defaults). doctor --apply does not apply this; to switch by hand see README.md, section "Moving an existing project to the new defaults".`,
     });
   }
   return recommendations;
@@ -198,26 +198,26 @@ function protectedDirs(list) {
 export function evaluateIndependence(roles) {
   const weakRoles = ['review', 'qa_design', 'qa_run'].filter((r) => roles[r] && canonicalTool(roles[r]) === canonicalTool(roles.dev));
   const mitigations = weakRoles.length ? [
-    'Свіжий процес без контексту dev для кожної ролі, що збіглася',
-    'Інша модель, якщо команда має плейсхолдер {model}; інакше пропустити без помилки',
-    'Перевірка за чеклистом і diff',
-    'Активні lock-tests і guard',
+    'A fresh process without dev context for each matching role',
+    'A different model when the command has a {model} placeholder; otherwise skip without error',
+    'Check against the checklist and the diff',
+    'Active lock-tests and guard',
   ] : [];
   return {
     weakIndependence: weakRoles.length > 0, weakRoles, mitigations,
-    reportBadge: weakRoles.length ? `weak independence: dev (${roles.dev}) збігається з ${weakRoles.join(', ')}. Пом’якшення: ${mitigations.join('; ')}.` : '',
+    reportBadge: weakRoles.length ? `weak independence: dev (${roles.dev}) shares its tool with ${weakRoles.join(', ')}. Mitigations: ${mitigations.join('; ')}.` : '',
   };
 }
 
 export function checkEntryPoints(rootDir, toolsEnabled) {
   const enabled = normalizeTools(toolsEnabled ?? TOOLS);
   const missing = [];
-  const problems = enabled.unknown.map((t) => `tools_enabled: невідомий інструмент '${t}'`);
+  const problems = enabled.unknown.map((t) => `tools_enabled: unknown tool '${t}'`);
   for (const tool of enabled.tools) {
     const file = `${tool === 'claude' ? '.claude' : '.agents'}/skills/deliver/SKILL.md`;
     if (existsSync(resolve(rootDir, file))) continue;
     if (!missing.includes(file)) missing.push(file);
-    problems.push(`немає точки входу для ${tool}: ${file}`);
+    problems.push(`no entry point for ${tool}: ${file}`);
   }
   return { ok: problems.length === 0, missing, problems };
 }
@@ -268,8 +268,51 @@ const SAFE_SUBCOMMANDS = ['validate', 'guard', 'check-output', 'detect', 'selfte
 export const SUBCOMMANDS = ['export', 'upgrade', 'migrate-config', 'selftest', 'doctor', 'perms', 'check-output', 'config', 'detect', 'init-config', 'validate', 'lock-tests', 'guard', 'install'];
 const MUTATING_SUBCOMMANDS = SUBCOMMANDS.filter((s) => !SAFE_SUBCOMMANDS.includes(s));
 
-function agySettingsFile() {
-  return process.env.DELIVERY_AGY_SETTINGS || resolve(homedir(), '.gemini/antigravity-cli/settings.json');
+/** Data dir of interactive agy CLI sessions; delivery never writes its settings. */
+export const AGY_GLOBAL_DIR = 'antigravity-cli';
+
+/**
+ * System commands denied as a second line of defence. The agy terminal sandbox on Windows hides host
+ * processes (agy 1.4.5: a sandboxed command sees only its own processes), but agy runs a command outside
+ * the sandbox once a human approves it, and sessions may run without the sandbox: on 2026-10-22 an
+ * unsandboxed agy session ran `Stop-Process -Name git, bash -Force` and killed every git and bash on the
+ * machine. Verified on agy 1.4.5: a `.*...*` rule matches anywhere in the line, also after `|`,
+ * inside `cmd /c "..."` and `& { ... }`; `(?i:...)` ignores case.
+ */
+export const SYSTEM_DENY_RULES = [
+  String.raw`command(regex:.*(?i:\b(stop-process|spps|taskkill|tskill|pskill|kill|pkill|killall|wmic|invoke-cimmethod|invoke-wmimethod)\b).*)`,
+  String.raw`command(regex:.*(?i:\b(stop-computer|restart-computer|logoff|reboot|poweroff)\b|\bshutdown(\.exe)?\s+([/-][srlhpaf]\b|now\b)).*)`,
+  String.raw`command(regex:.*(?i:\b(stop-service|restart-service|suspend-service|set-service|new-service|remove-service|systemctl|launchctl)\b|\bsc(\.exe)?\s+(stop|delete|config|create|pause|failure)\b|\bnet(\.exe)?\s+(stop|start|user|localgroup)\b).*)`,
+  String.raw`command(regex:.*(?i:\b(schtasks|register-scheduledtask|unregister-scheduledtask|set-scheduledtask|crontab)\b).*)`,
+  String.raw`command(regex:.*(?i:\breg(\.exe)?\s+(add|delete|import|load|unload|restore|copy)\b|\b(set-itemproperty|new-itemproperty|remove-itemproperty|rename-itemproperty)\b|\b(hklm|hkcu|hkcr|hku|hkcc):|registry::).*)`,
+  String.raw`command(regex:.*(?i:\b(netsh|bcdedit|diskpart|format-volume|set-executionpolicy|add-mppreference|set-mppreference|wsl|takeown|icacls)\b|-verb\s+runas\b).*)`,
+];
+
+/** Profile name from `--app_data_dir=<name>` in commands.antigravity, or null. */
+export function agyProfileDir(cfg) {
+  const m = String(cfg?.commands?.antigravity ?? '').match(/--app_data_dir[=\s]+"?([^"\s]+)"?/);
+  return m ? m[1] : null;
+}
+
+/** Why this project's delivery runs of agy have no own profile, or null when they have one. */
+export function agyProfileProblem(cfg) {
+  const dir = agyProfileDir(cfg);
+  if (!dir) return 'commands.antigravity has no --app_data_dir: agy roles would run with the global agy settings of every interactive session. Run migrate-config (it adds --app_data_dir=antigravity-delivery-<project>), then perms.';
+  if (dir === AGY_GLOBAL_DIR || /[\\/:]|\.\./.test(dir)) return `commands.antigravity: --app_data_dir=${dir} is not a delivery profile name; use antigravity-delivery-<project>.`;
+  return null;
+}
+
+/** Model of interactive agy sessions (global settings), or null; never for the global file itself. */
+function agyGlobalModel(agyFile) {
+  const globalFile = resolve(homedir(), '.gemini', AGY_GLOBAL_DIR, 'settings.json');
+  if (!agyFile || resolve(agyFile) === globalFile || !existsSync(globalFile)) return null;
+  const model = readJson(globalFile)?.model;
+  return typeof model === 'string' && model ? model : null;
+}
+
+function agySettingsFile(cfg) {
+  if (process.env.DELIVERY_AGY_SETTINGS) return process.env.DELIVERY_AGY_SETTINGS;
+  return agyProfileProblem(cfg) ? null : resolve(homedir(), '.gemini', agyProfileDir(cfg), 'settings.json');
 }
 
 /** A path entry naming a single file: no trailing slash, not an existing directory, has an extension. */
@@ -284,7 +327,7 @@ function agyRule(prefix, win) {
   return win ? `command(regex:${escapeRegex(prefix)}( .*)?)` : `command(${prefix})`;
 }
 
-export function proposePermissions(cfg, roles = cfg.roles, { conductor = null, rootDir = root, agyFile = agySettingsFile() } = {}) {
+export function proposePermissions(cfg, roles = cfg.roles, { conductor = null, rootDir = root, agyFile = agySettingsFile(cfg) } = {}) {
   roles = Object.fromEntries(Object.entries(roles ?? {}).map(([role, tool]) => [role, canonicalTool(tool)]));
   const used = new Set(Object.values(roles));
   const win = WIN;
@@ -315,17 +358,23 @@ export function proposePermissions(cfg, roles = cfg.roles, { conductor = null, r
     ...denyCmds.map((p) => agyRule(p, win)),
     'command(regex:.*(migrate|db\\-fresh|db_fresh|schema:drop|flush).*)',
     ...MUTATING_SUBCOMMANDS.map((sub) => `command(regex:.*delivery\\.mjs\\s+${escapeRegex(sub)}(\\s.*)?)`),
+    ...SYSTEM_DENY_RULES,
     `write_file(${agyPath('.git', true)})`,
     ...secrets.flatMap((p) => [`read_file(${agyPath(p)})`, `write_file(${agyPath(p)})`]),
   ];
   const proposal = {};
   if (used.has('claude') || claudeConductor) proposal.claude = { file: resolve(rootDir, '.claude/settings.local.json'), allow: [...new Set(claudeAllow)], deny: [] };
-  if (used.has('antigravity')) proposal.antigravity = {
+  if (used.has('antigravity') && !agyFile) proposal.antigravity = {
+    file: null, allow: [], deny: [], problem: agyProfileProblem(cfg) ?? 'no agy settings file for delivery',
+  };
+  else if (used.has('antigravity')) proposal.antigravity = {
     file: agyFile, allow: [...new Set(agyAllow)], deny: [...new Set(agyDeny)],
     settings: { toolPermission: 'proceed-in-sandbox', enableTerminalSandbox: true },
+    // A new profile has no model and agy would fall back to its default one: keep the model chosen for interactive agy.
+    inheritModel: agyGlobalModel(agyFile),
     dockerWarning: cfg.test?.env === 'docker'
-      ? 'test.env = docker: Docker і мережа можуть не працювати в sandbox agy, тож ролі QA на antigravity можуть повернути blocked. Модуль не додає правил запуску поза sandbox; за потреби налаштуйте це вручну.' : null,
-    note: 'Sandbox mode: commands run in the agy terminal sandbox without a command allowlist; file rules use absolute paths of this project (relative rules break the sandbox).',
+      ? 'test.env = docker: Docker and network may not work in the agy sandbox, so QA roles on antigravity may return blocked. The module adds no rules for running outside the sandbox; configure that by hand if needed.' : null,
+    note: 'Own agy profile of this project (--app_data_dir in commands.antigravity): the global agy settings of interactive sessions are not touched. Sandbox mode: commands run in the agy terminal sandbox without a command allowlist; system commands (process kill, power, services, scheduled tasks, registry) are also denied, for commands agy runs outside the sandbox; file rules use absolute paths of this project (relative rules break the sandbox).',
   };
   return proposal;
 }
@@ -344,9 +393,14 @@ export function permsPlan(cfg, only, { rootDir = root, agyFile } = {}) {
   const targets = [];
   for (const [tool, p] of Object.entries(proposal)) {
     if (only && !only.includes(tool)) continue;
+    if (!p.file) {
+      targets.push({ tool, file: null, exists: false, problem: p.problem, addAllow: [], addDeny: [], current: {}, proposalAllow: [], proposalDeny: [] });
+      continue;
+    }
     const current = existsSync(p.file) ? readJson(p.file) ?? {} : {};
     const curAllow = current.permissions?.allow ?? [];
     const curDeny = current.permissions?.deny ?? [];
+    const settings = p.settings && p.inheritModel && !current.model ? { ...p.settings, model: p.inheritModel } : p.settings;
     const relativeRules = p.settings ? [
       ...curAllow.filter(isRelativeFileRule).map((rule) => ({ list: 'allow', rule })),
       ...curDeny.filter(isRelativeFileRule).map((rule) => ({ list: 'deny', rule })),
@@ -357,13 +411,13 @@ export function permsPlan(cfg, only, { rootDir = root, agyFile } = {}) {
       addDeny: p.deny.filter((r) => !curDeny.includes(r)),
       current,
       proposalAllow: p.allow, proposalDeny: p.deny,
-      ...(p.settings ? {
-        settings: p.settings,
-        settingsDiff: Object.entries(p.settings).filter(([key, value]) => current[key] !== value)
+      ...(settings ? {
+        settings,
+        settingsDiff: Object.entries(settings).filter(([key, value]) => current[key] !== value)
           .map(([key, proposed]) => ({ key, current: current[key] ?? null, proposed })),
         relativeRules,
         relativeRulesNote: relativeRules.length
-          ? 'Глобальний файл agy містить відносні файлові правила (relativeRules). Поки вони є, sandbox agy не запускає жодної команди (sandbox configuration error: non-absolute file path) у всіх проєктах машини. Зробіть кожне правило абсолютним для свого проєкту або видаліть його вручну; модуль їх не змінює. До того perms --apply додає абсолютні правила цього проєкту, але не вмикає sandbox і не ставить permissions_confirmed; ролі на antigravity без списку дозволених команд не запустять жодної команди.' : null,
+          ? 'The agy settings file of this profile has relative file rules (relativeRules). While they exist, the agy sandbox runs no command (sandbox configuration error: non-absolute file path). Make each rule absolute or delete it by hand; the module does not change them. Until then perms --apply adds the absolute rules of this project but does not enable the sandbox or set permissions_confirmed; roles on antigravity without a command allowlist cannot run any command.' : null,
         dockerWarning: p.dockerWarning,
       } : {}),
     });
@@ -376,6 +430,10 @@ export function permsApply(targets) {
   const notApplied = [];
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   for (const t of targets) {
+    if (t.problem) {
+      notApplied.push({ tool: t.tool, file: null, reason: t.problem });
+      continue;
+    }
     const wantSettings = (t.settingsDiff ?? []).length > 0;
     // Relative rules also invalidate an already enabled sandbox; do not confirm it.
     const blocked = (t.relativeRules ?? []).length > 0;
@@ -419,7 +477,7 @@ export function checkToolOutput(text) {
   const denied = text.match(/"denied_actions"\s*:\s*\[([^\]]+)\]/);
   if (denied) reasons.push(`denied_actions: ${denied[1].trim().slice(0, 200)}`);
   if (/"response"\s*:\s*""/.test(text)) reasons.push('empty response');
-  if (/sandbox configuration error[^\n]{0,200}non-absolute file path/i.test(text)) reasons.push('agy sandbox configuration error: a relative file rule in the global agy settings (non-absolute file path) stops every command; run perms and fix the listed relativeRules by hand');
+  if (/sandbox configuration error[^\n]{0,200}non-absolute file path/i.test(text)) reasons.push('agy sandbox configuration error: a relative file rule in the agy settings of the delivery profile (non-absolute file path) stops every command; run perms and fix the listed relativeRules by hand');
   if (!isJsonEnvelope(text) && WRITE_FAILURE_RE.test(text)) reasons.push('write failure: the tool could not write to the repository (sandbox protects .agents and .git: access denied, index.lock or read-only); use the implementation.patch protocol and let the conductor commit');
   if (/command not found|is not recognized as the name of a cmdlet/i.test(text)) reasons.push('a command used by the tool is not available');
   return { ok: reasons.length === 0, reasons };

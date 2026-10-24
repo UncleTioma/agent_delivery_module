@@ -14,8 +14,20 @@ export const DEFAULT_COMMANDS = {
   antigravity: 'agy -p "{prompt}" --output-format json --print-timeout 30m --effort high',
   claude: 'subagent',
 };
+/** agy data dir of this project's delivery roles: ~/.gemini/<name>/settings.json, never the global antigravity-cli one. */
+export function agyProfileName(project) {
+  const slug = String(project ?? '').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+  return `antigravity-delivery-${slug || 'project'}`;
+}
+
+/** Append --app_data_dir=<profile> to an agy command that has none; other commands are returned unchanged. */
+export function withAgyProfile(command, profile) {
+  if (typeof command !== 'string' || !/^\s*agy(\.exe)?\s/.test(command) || /--app_data_dir\b/.test(command)) return command;
+  return `${command.trimEnd()} --app_data_dir=${profile}`;
+}
+
 export const DEFAULT_LIMITS = {
-  max_iterations: 3, max_question_rounds: 2, max_back_to_ba: 1, max_po_rework: 2, max_questions: 7,
+  max_iterations: 3, max_question_rounds: 2, max_back_to_ba: 1, max_po_rework: 2, max_questions: 7, max_design_rounds: 3,
 };
 export const HUMAN_APPROVAL = ['migration', 'rbac', 'new_dependency', 'data_deletion'];
 
@@ -250,7 +262,7 @@ export function buildDraft(d) {
     human_approval: HUMAN_APPROVAL,
     review_checklist: profile.review_checklist,
     roles: { ...DEFAULT_ROLES },
-    commands: { ...DEFAULT_COMMANDS },
+    commands: { ...DEFAULT_COMMANDS, antigravity: withAgyProfile(DEFAULT_COMMANDS.antigravity, agyProfileName(d.projectName)) },
     limits: { ...DEFAULT_LIMITS },
     publish: false,
     roles_confirmed: false,

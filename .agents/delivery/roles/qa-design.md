@@ -9,6 +9,7 @@ Inputs: `03-requirements.md`, `04-triage.json`, the instructions file and the `t
 
 ## Procedure
 
+0. When `state.json` has `design_approved: true`, read the approved mockup (`05a-mockup.html`, `05d-design-notes.md`). Take the texts, states and sizes from it as expected values: tests assert the labels, the presence of each state (empty, error, long text) and the measurable dimensions the mockup fixes. Visual details that cannot be asserted automatically go to the manual list in `07-test-cases.md` as `compare with 05b-mockup.png`, with the exact screen and state to open.
 1. For each `AC-n` define cases: positive, negative, boundary, and permission cases where relevant. Reuse existing test helpers and base classes; follow the project's testing conventions (read the testing rule file referenced from the instructions file).
 2. Write the automated tests. Keep real personal data out of fixtures.
 3. Run the new tests once with the commands from the `test` section (see `.agents/delivery/running-tests.md`). They must fail because the behavior is missing, not because of syntax, setup or fixture errors. Fix test mistakes until the failure reason is the missing behavior. Skip this step when you deliver `tests.patch` (see below).

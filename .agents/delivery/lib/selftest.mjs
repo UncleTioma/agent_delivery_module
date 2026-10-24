@@ -447,7 +447,9 @@ export function selftest() {
     const agyMatchesRule = (rules, cmdLine) => (rules ?? []).some((rule) => {
       if (rule.startsWith('command(regex:') && rule.endsWith(')')) {
         const pat = rule.slice('command(regex:'.length, -1);
-        try { return new RegExp(`^${pat}$`).test(cmdLine); } catch { return false; }
+        // agy (Go RE2) reads (?i:...); Node before 23 does not, so use the i flag instead.
+        const ci = pat.includes('(?i:');
+        try { return new RegExp(`^${ci ? pat.replaceAll('(?i:', '(?:') : pat}$`, ci ? 'i' : '').test(cmdLine); } catch { return false; }
       }
       if (rule.startsWith('command(') && rule.endsWith(')')) {
         const p = rule.slice('command('.length, -1);
@@ -711,7 +713,7 @@ export function selftest() {
       ac29KeepPlan.roles?.qa_design === 'codex'
       && !ac29KeepPlan.changes?.some((c) => c.role === 'qa_design')
       && (ac29KeepPlan.problems ?? []).length === 0
-      && (ac29KeepPlan.warnings ?? []).some((w) => /protected_paths/i.test(w) && /qa_design\b/.test(w) && /codex/i.test(w) && /patch|патч/i.test(w))
+      && (ac29KeepPlan.warnings ?? []).some((w) => /protected_paths/i.test(w) && /qa_design\b/.test(w) && /codex/i.test(w) && /patch/i.test(w))
       && ac29SepPlan.roles?.dev === 'codex'
       && ac29SepPlan.roles?.qa_design !== 'codex'
       && ac29SepPlan.changes?.some((c) => c.role === 'qa_design' && c.from === 'codex' && c.to === ac29SepPlan.roles.qa_design),
@@ -922,7 +924,7 @@ export function selftest() {
     // AC-15: deliver.md requires showing recommendations to PO on every start in one line without asking or stopping, regardless of roles_confirmed.
     check('t2045-ac15: deliver.md requires showing doctor recommendations on every start as one line without prompting or stopping',
       /recommend/i.test(deliverRoleText)
-      && /one line|single line|одним рядком/i.test(deliverRoleText),
+      && /one line|single line/i.test(deliverRoleText),
       'missing recommendation display instruction in roles/deliver.md');
 
     // AC-16: existing project with confirmed legacy map (architect and review on claude) keeps roles and confirmation across upgrade/migrate-config + config.
@@ -979,14 +981,53 @@ export function selftest() {
       /08-dev-log\.md[\s\S]{0,250}AC\s+ids|AC\s+ids[\s\S]{0,250}08-dev-log\.md/i.test(devRoleText)
       && !/^\s*\d+\.\s*Commit\b/im.test(devRoleText)
       && /08-dev-log\.md[\s\S]{0,250}AC\s+ids|AC\s+ids[\s\S]{0,250}08-dev-log\.md/i.test(deliverRoleText)
-      && /claude,\s*codex\s+(?:or|and|чи)\s+antigravity|regardless of (?:its )?tool|незалежно від (?:її )?інструмента/i.test(deliverRoleText),
+      && /claude,\s*codex\s+(?:or|and)\s+antigravity|regardless of (?:its )?tool/i.test(deliverRoleText),
       'missing conductor commit or AC ids in 08-dev-log.md requirement in deliver.md / dev.md');
+
+    // Design stage: triage flag, state fields, designer role, conductor checkpoint and consumers of the approved mockup.
+    const designGood = resolve(base, 'triage-design.json');
+    writeFileSync(designGood, JSON.stringify({ sufficient: true, missing: [], track: 'S', architect_triggers: [], risks: [], needs_human_approval: [], estimate_files: 1, needs_design: true }));
+    const designBad = resolve(base, 'triage-design-bad.json');
+    writeFileSync(designBad, JSON.stringify({ sufficient: true, missing: [], track: 'S', architect_triggers: [], risks: [], needs_human_approval: [], estimate_files: 1, needs_design: 'yes' }));
+    check('design: triage schema accepts a boolean needs_design and stays valid without it',
+      cli(dir, 'validate', 'triage', designGood).code === 0 && cli(dir, 'validate', 'triage', good).code === 0
+      && cli(dir, 'validate', 'triage', designBad).code === 1);
+    const designState = resolve(base, 'state-design.json');
+    writeFileSync(designState, JSON.stringify({ id: 'T-1', stage: 'design', iteration: 0, history: [], waiting_for: 'HD', design_round: 1, design_approved: false, mockup_url: null }));
+    const designStateBad = resolve(base, 'state-design-bad.json');
+    writeFileSync(designStateBad, JSON.stringify({ id: 'T-1', stage: 'design', iteration: 0, history: [], waiting_for: 'H9' }));
+    check('design: state schema has the design stage, the HD checkpoint and mockup fields',
+      cli(dir, 'validate', 'state', designState).code === 0 && cli(dir, 'validate', 'state', designStateBad).code === 1);
+    const designerText = readFileSync(resolve(moduleDir, 'roles/designer.md'), 'utf8');
+    check('design: designer role writes mockup html, png and notes and does not edit the repository',
+      /^skill:\s*deliver-designer\s*$/m.test(designerText)
+      && ['05a-mockup.html', '05b-mockup.png', '05d-design-notes.md', '05c-design-remarks.md'].every((f) => designerText.includes(f))
+      && /Do not edit the repository/i.test(designerText),
+      'roles/designer.md is missing artifacts or the no-edit rule');
+    const designTriageText = readFileSync(resolve(moduleDir, 'roles/triage.md'), 'utf8');
+    check('design: triage sets needs_design for every UI task on every track',
+      /needs_design/.test(designTriageText) && /does not depend on the track/i.test(designTriageText),
+      'roles/triage.md must require needs_design for UI tasks regardless of track');
+    check('design: conductor runs the design stage with an Artifact, the HD checkpoint and a round limit',
+      /\*\*design\*\*/.test(deliverRoleText) && /needs_design/.test(deliverRoleText) && /Artifact/.test(deliverRoleText)
+      && /\*\*HD\*\*/.test(deliverRoleText) && /max_design_rounds/.test(deliverRoleText)
+      && /05e-mockup-url\.txt/.test(deliverRoleText) && detectMod.DEFAULT_LIMITS?.max_design_rounds === 3,
+      'roles/deliver.md or DEFAULT_LIMITS lacks the design stage');
+    check('design: plan, qa_design, dev, review, qa_run and report use the approved mockup',
+      ['plan', 'qa-design', 'dev', 'review', 'qa-run', 'report'].every((r) => {
+        const t = readFileSync(resolve(moduleDir, `roles/${r}.md`), 'utf8');
+        return /design_approved/.test(t) && /mockup/i.test(t);
+      }),
+      'a consumer role does not mention design_approved and the mockup');
+    check('design: install generates the designer skill entry points',
+      [resolve(dir, '.agents/skills/deliver-designer/SKILL.md'), resolve(dir, '.claude/skills/deliver-designer/SKILL.md')].every((f) => existsSync(f)),
+      'deliver-designer skill missing after install');
 
     // AC-18: report reads weak independence data from task directory artifact prepared by conductor without running config.
     const reportTemplateText = readFileSync(resolve(moduleDir, 'templates/report.md'), 'utf8');
     check('t2045-ac18: report role reads weak independence data from task directory artifact prepared by conductor without running config',
       !/Run `config`/i.test(reportRoleText)
-      && /task directory|катало[гз]і задачі|<task>/i.test(reportRoleText)
+      && /task directory|<task>/i.test(reportRoleText)
       && /weak[ _-]independence/i.test(deliverRoleText)
       && /report[\s\S]{0,400}weak|weak[\s\S]{0,400}report/i.test(deliverRoleText)
       && /weak independence/i.test(reportTemplateText),
@@ -997,7 +1038,7 @@ export function selftest() {
     check('t2045-ac19: bootstrap role passes project.json settings via task directory and conductor writes project.json and runs config',
       !/Update\s+`?\.agents\/delivery\/project\.json`?/i.test(bootstrapRoleText)
       && !/delivery\.mjs\s+config/i.test(bootstrapRoleText)
-      && /task directory|катало[гз]|08-dev-log\.md|\.json/i.test(bootstrapRoleText)
+      && /task directory|08-dev-log\.md|\.json/i.test(bootstrapRoleText)
       && !/The bootstrap role updates `project\.json` itself/i.test(deliverRoleText)
       && /project\.json[\s\S]{0,200}config/i.test(deliverRoleText),
       'bootstrap.md or deliver.md still requires bootstrap role to edit project.json directly');
@@ -1131,14 +1172,14 @@ export function selftest() {
       ac33PlanRes.code === 0
       && allRelListed
       && /sandbox/i.test(ac33PlanRes.raw)
-      && /абсолют|absolute|вручну|manual/i.test(ac33PlanRes.raw)
+      && /absolute|by hand|manual/i.test(ac33PlanRes.raw)
       && ac33ApplyRes.code === 0
       && existingPreserved
       && ac33AfterFirst.toolPermission === 'ask'
       && ac33AfterFirst.enableTerminalSandbox === false
       && ac33AfterFirst.permissions?.allow?.includes(`write_file(${docDirPosix}/.work/)`)
       && ac33AfterFirst.permissions?.deny?.includes(`write_file(${docDirPosix}/.git/)`)
-      && /sandbox|toolPermission|відносн|relative/i.test(ac33ApplyRes.raw)
+      && /sandbox|toolPermission|relative/i.test(ac33ApplyRes.raw)
       && ac33CfgAfterFirst.permissions_confirmed === false
       && ac33SecondApply.code === 0
       && ac33AfterSecond.toolPermission === 'proceed-in-sandbox'
@@ -1149,7 +1190,7 @@ export function selftest() {
     // AC-34: deliver.md requires asking PO once when perms proposes missing rules/settings even if permissions_confirmed is true, and reporting relative rules without stopping.
     check('t2045-ac34: deliver.md requires prompting when perms has unapplied rules/settings regardless of permissions_confirmed and reporting relative rules without stopping',
       !/If `addAllow`\/`addDeny` is non-empty and `permissions_confirmed` is not true/i.test(deliverRoleText)
-      && /relative|відносн/i.test(deliverRoleText)
+      && /relative/i.test(deliverRoleText)
       && /perms --apply/.test(deliverRoleText),
       'roles/deliver.md permissions step not updated for AC-34');
 
@@ -1167,6 +1208,99 @@ export function selftest() {
       && !/unsandboxed\(/i.test(ac35Perms.raw),
       ac35Perms.raw);
 
+    // Own agy profile per project: delivery never writes the global agy settings of interactive sessions
+    // (2026-10-22: with auto-run there, an agy session killed every git and bash on the machine).
+    const profDir = fixture(base, 'agyprof', {
+      'package.json': JSON.stringify({ name: 'Shop App', scripts: { test: 'jest' }, devDependencies: { jest: '1' } }), 'src/a.js': '', 'tests/a.test.js': '',
+    });
+    cli(profDir, 'install');
+    const profCfgFile = resolve(profDir, '.agents/delivery/project.json');
+    const profCfg = JSON.parse(readFileSync(profCfgFile, 'utf8'));
+    const oldAgyCmd = 'agy -p "{prompt}" --output-format json --print-timeout 30m --effort high';
+    check('agy-profile: install drafts the agy command with the project own profile',
+      profCfg.commands?.antigravity === `${oldAgyCmd} --app_data_dir=antigravity-delivery-shop-app`,
+      profCfg.commands?.antigravity);
+
+    const profHome = resolve(base, 'agy-prof-home');
+    const globalAgyFile = resolve(profHome, '.gemini/antigravity-cli/settings.json');
+    mkdirSync(dirname(globalAgyFile), { recursive: true });
+    const globalAgyText = JSON.stringify({ model: 'Gemini 3.8 Flash (High)', toolPermission: 'request-review', permissions: { allow: ['command(git status)'] } }, null, 2) + '\n';
+    writeFileSync(globalAgyFile, globalAgyText);
+    const profEnv = { HOME: profHome, USERPROFILE: profHome, DELIVERY_AGY_SETTINGS: '' };
+    const profApply = cliEnv(profDir, profEnv, 'perms', '--apply');
+    const profFile = resolve(profHome, '.gemini/antigravity-delivery-shop-app/settings.json');
+    const profSettings = existsSync(profFile) ? JSON.parse(readFileSync(profFile, 'utf8')) : null;
+    check('agy-profile: perms --apply writes sandbox settings to the project profile and leaves the global agy file untouched',
+      profApply.code === 0
+      && profSettings?.toolPermission === 'proceed-in-sandbox'
+      && profSettings?.enableTerminalSandbox === true
+      && toolsMod.SYSTEM_DENY_RULES.every((r) => profSettings.permissions?.deny?.includes(r))
+      && readFileSync(globalAgyFile, 'utf8') === globalAgyText
+      && readdirSync(dirname(globalAgyFile)).length === 1,
+      JSON.stringify({ apply: profApply.json, profSettings }));
+
+    writeFileSync(profFile, JSON.stringify({ ...profSettings, model: 'Gemini 4 Argon (High)' }, null, 2) + '\n');
+    const profReapply = cliEnv(profDir, profEnv, 'perms', '--apply');
+    const profModelAfter = JSON.parse(readFileSync(profFile, 'utf8')).model;
+    check('agy-profile: a new profile takes the model of interactive agy, a model set in the profile is kept',
+      profSettings?.model === 'Gemini 3.8 Flash (High)'
+      && profReapply.code === 0
+      && profModelAfter === 'Gemini 4 Argon (High)',
+      JSON.stringify({ first: profSettings?.model, after: profModelAfter, reapply: profReapply.json }));
+
+    const noProfHome = resolve(base, 'agy-noprof-home');
+    mkdirSync(noProfHome, { recursive: true });
+    const noProfEnv = { HOME: noProfHome, USERPROFILE: noProfHome, DELIVERY_AGY_SETTINGS: '' };
+    const profCfgWith = (antigravity) => writeFileSync(profCfgFile, JSON.stringify({
+      ...profCfg, commands: { ...profCfg.commands, antigravity }, permissions_confirmed: false,
+    }, null, 2) + '\n');
+    profCfgWith(oldAgyCmd);
+    const noProfApply = cliEnv(profDir, noProfEnv, 'perms', '--apply');
+    const noProfConfig = cliEnv(profDir, noProfEnv, 'config');
+    const noProfCfgAfter = JSON.parse(readFileSync(profCfgFile, 'utf8'));
+    profCfgWith(`${oldAgyCmd} --app_data_dir=antigravity-cli`);
+    const globalNameApply = cliEnv(profDir, noProfEnv, 'perms', '--apply');
+    check('agy-profile: without an own profile (no --app_data_dir or the global antigravity-cli) perms writes no agy settings and config reports it',
+      noProfApply.code === 0
+      && (noProfApply.json?.notApplied ?? []).some((n) => n.tool === 'antigravity' && /--app_data_dir/.test(n.reason))
+      && noProfCfgAfter.permissions_confirmed === false
+      && noProfConfig.code === 1
+      && (noProfConfig.json?.errors ?? []).some((e) => /--app_data_dir/.test(e))
+      && globalNameApply.code === 0
+      && (globalNameApply.json?.notApplied ?? []).some((n) => n.tool === 'antigravity' && /antigravity-cli/.test(n.reason))
+      && !existsSync(resolve(noProfHome, '.gemini')),
+      JSON.stringify({ apply: noProfApply.json, config: noProfConfig.json, globalName: globalNameApply.json }));
+
+    profCfgWith(oldAgyCmd);
+    const profMigr = cli(profDir, 'migrate-config');
+    const profMigrCmd = JSON.parse(readFileSync(profCfgFile, 'utf8')).commands?.antigravity;
+    const profMigrAgain = cli(profDir, 'migrate-config');
+    check('agy-profile: migrate-config adds the project profile to an old agy command once',
+      profMigr.code === 0
+      && (profMigr.json?.changed ?? []).includes('commands.antigravity')
+      && profMigrCmd === `${oldAgyCmd} --app_data_dir=antigravity-delivery-shop-app`
+      && profMigrAgain.code === 0
+      && (profMigrAgain.json?.changed ?? []).length === 0,
+      JSON.stringify({ migr: profMigr.json, cmd: profMigrCmd, again: profMigrAgain.json }));
+
+    const sysDeny = toolsMod.proposePermissions({ ...cfg, roles: codexAgyRoles }, codexAgyRoles, { agyFile: 'agy.json' }).antigravity?.deny ?? [];
+    const sysBlocked = [
+      'Stop-Process -Name git, bash -Force -ErrorAction SilentlyContinue', 'stop-process -name bash',
+      'Get-Process git | Stop-Process -Force', 'cmd /c "taskkill /IM git.exe /F"', '& { spps -Name bash }',
+      'kill 1234', 'pkill -f node', 'Restart-Computer -Force', 'shutdown /r /t 0',
+      'Stop-Service -Name WSearch', 'sc.exe delete EchoSvc', 'schtasks /create /tn x /tr y /sc onlogon',
+      'reg add HKCU\\Software\\X /v Y /d Z', 'Set-ItemProperty -Path HKCU:\\Software\\X -Name Y -Value 1',
+      'netsh advfirewall set allprofiles state off', 'Start-Process pwsh -Verb RunAs',
+    ];
+    const sysAllowed = [
+      'git status', 'git diff --stat main', 'go test ./internal/shell/...', 'go test -run TestGracefulShutdown ./...',
+      'go test -run Shutdown -v ./...', 'npm test', 'cd frontend; npx tsc --noEmit', 'npx vitest run src/killSwitch.test.ts',
+      'node .agents/delivery/delivery.mjs validate review x.json', 'Get-Process -Name agy', 'Get-ChildItem -Recurse internal', 'rg "skill" internal',
+    ];
+    check('agy-deny: system commands the agy sandbox does not contain are denied, ordinary work is not',
+      sysBlocked.every((c) => agyMatchesRule(sysDeny, c)) && sysAllowed.every((c) => !agyMatchesRule(sysDeny, c)),
+      JSON.stringify({ missed: sysBlocked.filter((c) => !agyMatchesRule(sysDeny, c)), falsePositive: sysAllowed.filter((c) => agyMatchesRule(sysDeny, c)) }));
+
     // AC-25: INSTALL.md explicitly states target default role map, perms/perms --apply with sandbox and absolute paths, and Claude Code / Codex conductor.
     const installText = readFileSync(resolve(moduleDir, 'INSTALL.md'), 'utf8');
     check('t2045-ac25: INSTALL.md lists target default role map and perms --apply with agy sandbox and absolute paths',
@@ -1174,20 +1308,20 @@ export function selftest() {
       && /review[\s\S]{0,120}antigravity|antigravity[\s\S]{0,120}review/i.test(installText)
       && /perms --apply/.test(installText)
       && /sandbox/i.test(installText)
-      && /absolute|абсолют/i.test(installText),
+      && /absolute/i.test(installText),
       'INSTALL.md missing target default role map or perms --apply sandbox instructions');
 
     // AC-24 & AC-26 & Round 4 supplement: README.md covers all required topics, conductor restriction, and exact selftest count.
     const expectedTotalChecks = results.length + 1;
-    const readmeCountMatch = readmeText.match(/selftest[^\n]*?\((\d+)\s+перевір/i);
+    const readmeCountMatch = readmeText.match(/selftest[^\n]*?\((\d+)\s+checks\)/i);
     check('t2045-ac24-ac26: README.md documents target role map, confirmed map priority, recommendations, agy sandbox/absolute paths, conductor restriction and exact selftest count',
       /architect[\s\S]{0,200}antigravity/i.test(readmeText)
       && /review[\s\S]{0,200}antigravity/i.test(readmeText)
       && /proceed-in-sandbox/.test(readmeText)
       && /enableTerminalSandbox/.test(readmeText)
-      && !/Прапорець `--sandbox` проблему не вирішує/.test(readmeText)
-      && !/Gemini\/Antigravity або Claude Code/.test(readmeText)
-      && !/Gemini\/Antigravity або Codex/.test(readmeText)
+      && !/The `--sandbox` flag does not solve the problem/.test(readmeText)
+      && !/Gemini\/Antigravity or Claude Code/.test(readmeText)
+      && !/Gemini\/Antigravity or Codex/.test(readmeText)
       && Number(readmeCountMatch?.[1]) === expectedTotalChecks,
       `README checks failed or count mismatch: found ${readmeCountMatch?.[1]}, expected ${expectedTotalChecks}`);
   } finally {

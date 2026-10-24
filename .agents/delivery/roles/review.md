@@ -13,6 +13,7 @@ Inputs: the diff of the task branch against `base_branch`, `03-requirements.md`,
 2. Every item in `review_checklist` of `project.json`, where the diff affects it.
 3. Callers and tests of changed code (trace with bounded searches; verify, do not guess).
 4. Changed locked tests, forbidden paths, leftover debug code.
+5. With an approved mockup (`design_approved: true`; read `05a-mockup.html`, `05d-design-notes.md` and the "Mockup deviations" in `08-dev-log.md`): the UI diff shows every element, text and state of the mockup. A missing or wrong state of an AC is a `blocker`; a visible difference that is not recorded as a deviation is a `major`.
 
 ## Output: `09-review.json`
 

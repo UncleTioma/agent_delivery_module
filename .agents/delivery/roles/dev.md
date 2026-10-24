@@ -10,6 +10,7 @@ Inputs: `06-plan.md`, `03-requirements.md`, `07-test-cases.md`, the instructions
 ## Rules
 
 - Implement exactly what the plan says. Reasonable deviations are allowed but must be recorded with the reason in `08-dev-log.md`.
+- When `state.json` has `design_approved: true`, the UI must match the approved mockup `05a-mockup.html` (and `05b-mockup.png`): the same texts, states, dimensions, spacing and colors, using the project's own components and theme tokens. Do not edit the mockup. Record every deviation and its reason in `08-dev-log.md` under "Mockup deviations"; an undisclosed difference is a review finding.
 - Never edit files under `test_dirs` that are locked (see `tests.lock.json` in the task directory). If a locked test seems wrong, do not change it: describe the problem in `08-dev-log.md` under "Test disputes".
 - Never read or modify paths matching `forbidden_paths`. Never touch the application database; use the test setup described in the `test` section of `project.json`.
 - Do not push, merge or switch branches.

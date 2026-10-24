@@ -1,26 +1,32 @@
-# Звіт: <назва задачі>
+# Report: <task title>
 
-**Результат:** усі критерії виконано / частково / не виконано
+**Result:** all criteria met / partially / not met
 
-## Критерії приймання
-| AC | Статус | Доказ |
-|----|--------|-------|
+## Acceptance criteria
+| AC | Status | Evidence |
+|----|--------|----------|
 | AC-1 | pass | ... |
 
-## Що перевірити вручну
+## Check by hand
 1. ...
 
-## Що змінено
-- ...
-- Гілка: `...`
-- Міграції / права доступу: так/ні (опис)
+<!-- Optional block: add it only when design_approved is true in state.json (the task had a mockup). Delete this whole comment in the final report.
+## Mockup vs result
+- Mockup: <link from 05e-mockup-url.txt, or the path of 05a-mockup.html>; design rounds: N of max.
+- Deviations from the approved mockup: none / <each deviation with the reason from 08-dev-log.md>.
+-->
 
-<!-- Необов’язковий блок: додати лише коли weakRoles з independence.json у каталозі задачі непорожній.
+## What changed
+- ...
+- Branch: `...`
+- Migrations / access rights: yes/no (description)
+
+<!-- Optional block: add it only when weakRoles in independence.json in the task directory is not empty.
 ## weak independence
-<reportBadge з independence.json: ролі, спільний інструмент із dev та фактично застосовані пом’якшення; зазначити пропущену зміну моделі чи відсутні кроки.>
-Видалити весь цей коментар у готовому акті. -->
+<reportBadge from independence.json: the roles, the tool they share with dev and the mitigations actually applied; name a skipped model change or missing steps.>
+Delete this whole comment in the final report. -->
 
-## Обмеження та відкриті питання
+## Limitations and open questions
 - ...
 
-Ітерацій розробки: N з max.
+Development iterations: N of max.

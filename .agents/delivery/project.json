@@ -1,9 +1,9 @@
 {
-  "module_version": "0.2.0",
+  "module_version": "0.6.0",
   "configured": true,
   "profile": "node",
   "project": "agent_delivery_module",
-  "language": "uk",
+  "language": "en",
   "instructions_file": null,
   "base_branch": "main",
   "branch_prefix": "ai/",
@@ -61,18 +61,18 @@
     "personal data exposure and secrets in code"
   ],
   "roles": {
-    "ba": "claude",
+    "ba": "antigravity",
     "teamlead": "claude",
     "architect": "antigravity",
     "qa_design": "antigravity",
     "dev": "codex",
     "review": "antigravity",
     "qa_run": "antigravity",
-    "report": "claude"
+    "report": "antigravity"
   },
   "commands": {
     "codex": "codex exec --sandbox workspace-write \"{prompt}\"",
-    "antigravity": "agy -p \"{prompt}\" --output-format json --print-timeout 30m --effort high",
+    "antigravity": "agy -p \"{prompt}\" --output-format json --print-timeout 30m --effort high --app_data_dir=antigravity-delivery-agent_delivery_module",
     "claude": "subagent"
   },
   "limits": {
@@ -80,11 +80,12 @@
     "max_question_rounds": 2,
     "max_back_to_ba": 1,
     "max_po_rework": 2,
-    "max_questions": 7
+    "max_questions": 7,
+    "max_design_rounds": 3
   },
   "publish": false,
   "roles_confirmed": true,
   "permissions_confirmed": true,
   "unresolved": [],
-  "roles_signature": "24b8067859a976958c11e3614481689959751aa3"
+  "roles_signature": "052849b2f7beb396086421c5411c5100f02d3163"
 }

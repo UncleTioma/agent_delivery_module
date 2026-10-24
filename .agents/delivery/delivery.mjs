@@ -19,11 +19,11 @@ import {
   globToRegex, underAny, normalizedHash, changedFiles,
 } from './lib/util.mjs';
 import { validate } from './lib/schema.mjs';
-import { detect, buildDraft } from './lib/detect.mjs';
+import { detect, buildDraft, agyProfileName, withAgyProfile } from './lib/detect.mjs';
 import {
   inspectTools, inspectBasics, proposeRoles, permsPlan, permsApply, checkToolOutput,
   normalizeTools, checkEntryPoints, detectConductor, resolveCommand, evaluateIndependence, rolesSignature,
-  SUBCOMMANDS,
+  agyProfileProblem, SUBCOMMANDS,
 } from './lib/tools.mjs';
 
 const [cmd, ...args] = process.argv.slice(2);
@@ -48,16 +48,20 @@ function cmdConfig() {
   }
   if ('tools_enabled' in cfg) {
     if (!Array.isArray(cfg.tools_enabled) || !cfg.tools_enabled.length) {
-      errors.push('tools_enabled має бути непорожнім масивом інструментів');
+      errors.push('tools_enabled must be a non-empty array of tools');
     } else {
       const enabled = normalizeTools(cfg.tools_enabled);
-      for (const t of enabled.unknown) errors.push(`tools_enabled: невідомий інструмент '${t}'`);
+      for (const t of enabled.unknown) errors.push(`tools_enabled: unknown tool '${t}'`);
       for (const [role, tool] of Object.entries(roles)) {
         if (!enabled.tools.includes(tool === 'gemini' ? 'antigravity' : tool)) {
           errors.push(`roles.${role} uses tool '${tool}' which is not in tools_enabled`);
         }
       }
     }
+  }
+  if (Object.values(roles).some((t) => t === 'antigravity' || t === 'gemini')) {
+    const agyProblem = agyProfileProblem(cfg);
+    if (agyProblem) errors.push(agyProblem);
   }
   const independence = evaluateIndependence(roles);
   const skill = cfg.test?.skill;
@@ -243,7 +247,7 @@ function cmdDoctor() {
   });
   const problems = [...plan.problems];
   if ('tools_enabled' in cfg && !Array.isArray(cfg.tools_enabled)) {
-    problems.push('tools_enabled має бути непорожнім масивом інструментів');
+    problems.push('tools_enabled must be a non-empty array of tools');
   }
   const entry = checkEntryPoints(root, Array.isArray(cfg.tools_enabled) ? cfg.tools_enabled : plan.available);
   problems.push(...entry.problems);
@@ -289,7 +293,7 @@ function cmdPerms() {
   out({
     ok: true,
     targets: targets.map(({ current, proposalAllow, proposalDeny, ...t }) => t),
-    hint: 'Review addAllow/addDeny, settingsDiff, relativeRules and dockerWarning, then run again with --apply (backups are created). Relative rules are never changed by the module: fix them by hand.',
+    hint: 'Review addAllow/addDeny, settingsDiff, relativeRules, dockerWarning and problem, then run again with --apply (backups are created). Relative rules are never changed by the module: fix them by hand. A target with problem is not written.',
   });
 }
 
@@ -330,7 +334,11 @@ function cmdExport() {
   });
 }
 
-/** Add keys that newer module versions expect, never overwrite existing values. */
+/**
+ * Add keys that newer module versions expect, never overwrite existing values.
+ * One safety exception: an agy command without --app_data_dir gets this project's own profile,
+ * so delivery stops sharing the global agy settings of interactive sessions.
+ */
 function cmdMigrateConfig() {
   const file = resolve(moduleDir, 'project.json');
   const cfg = readJson(file);
@@ -341,10 +349,17 @@ function cmdMigrateConfig() {
     if (k === 'unresolved' || k === 'configured') continue;
     if (!(k in cfg)) { cfg[k] = v; added.push(k); }
   }
+  const changed = [];
+  const agyCmd = cfg.commands?.antigravity;
+  const agyFixed = withAgyProfile(agyCmd, agyProfileName(cfg.project ?? draft.project));
+  if (agyFixed !== agyCmd) {
+    cfg.commands.antigravity = agyFixed;
+    changed.push('commands.antigravity');
+  }
   const prev = cfg.module_version;
   cfg.module_version = moduleVersion(moduleDir);
   writeFileSync(file, JSON.stringify(cfg, null, 2) + '\n');
-  out({ ok: true, previous: prev ?? null, version: cfg.module_version, added });
+  out({ ok: true, previous: prev ?? null, version: cfg.module_version, added, changed });
 }
 
 /** Run inside the target project: upgrade this module from a newer copy, keeping project.json. */
