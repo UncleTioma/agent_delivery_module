@@ -405,6 +405,21 @@ const commands = {
   install: cmdInstall,
 };
 
+const USAGE = `delivery module ${moduleVersion(moduleDir)}
+
+Usage: node .agents/delivery/delivery.mjs <command> [options]
+
+Commands: ${Object.keys(commands).join(', ')}
+Docs: .agents/delivery/README.md (all commands and settings), README.md in the repository root.`;
+
+if (!cmd || ['help', '--help', '-h'].includes(cmd)) {
+  process.stdout.write(`${USAGE}\n`);
+  process.exit(cmd ? 0 : 2);
+}
+if (['version', '--version', '-v'].includes(cmd)) {
+  process.stdout.write(`${moduleVersion(moduleDir)}\n`);
+  process.exit(0);
+}
 if (!commands[cmd] || !SUBCOMMANDS.includes(cmd)) {
   out({ ok: false, errors: [`usage: ${Object.keys(commands).join(' | ')}`] }, 2);
 }

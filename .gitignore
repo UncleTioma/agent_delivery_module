@@ -3,3 +3,5 @@
 # Delivery pipeline task artifacts.
 .work/
 .claude/settings.local.json
+# Per-project module config: created by `install`, differs for every project.
+.agents/delivery/project.json

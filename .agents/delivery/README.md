@@ -2,7 +2,7 @@
 
 A portable "from Product Owner to acceptance" module. It works through skills in Claude Code, Codex and Antigravity and does not depend on the stack: profiles for Yii2, Laravel, Symfony, Python and Node/TypeScript, a generic profile for everything else, and a separate track for an empty project.
 
-The process, roles and checkpoints are described in `docs/ai-delivery-pipeline.md`, the roadmap in `docs/ai-delivery-universal-plan.md` (in the Blitz repository).
+The process, roles and checkpoints are described in `docs/pipeline.md` in the module's repository; this file is the reference for the CLI, `project.json` and the tool setup.
 
 ## Quick start in any project
 
